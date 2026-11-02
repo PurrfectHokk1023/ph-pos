@@ -412,6 +412,7 @@ async function loadInv() {
     if (r.ok) { inv.data = r; drawInv(); }
   } catch (e) {}
 }
+const INV_CAT = 'Dasma Branch';
 const fmtQ = n => String(Math.round(n * 100) / 100);
 const unitOf = s => (s && s.unit) || 'units';
 const initials = t => t.replace(/[^A-Za-z ]/g, '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
@@ -506,11 +507,11 @@ function supplyDialog(r) {
     (err, go) => invSave({pos: 'stock', items: [{supply: name.value.trim(), mode: 'add', unit: unit.value.trim()}]}, err, go), extra);
 }
 function drawRecipes() {
-  const items = inv.data.items || {}, menu = inv.data.menu || [];
+  const items = inv.data.items || {}, menu = (inv.data.menu || []).filter(m => m.cat === INV_CAT);   // Dasma Branch products only (Vince, 3 Nov)
   const st = m => items[m.item] ? items[m.item].status : 'No recipe';
   const n = s => menu.filter(m => st(m) === s).length;
   $('#invNote').innerHTML = 'A recipe says how much of each supply one serving uses. Every sale of the item takes those amounts off the supplies. An item is flagged when a supply in its recipe runs low; <b>can make</b> is how many more servings the counted supplies cover.';
-  chipsFor([['all', 'All menu items', menu.length, ''], ['No recipe', 'No recipe yet', n('No recipe'), 'amber'], ['attention', 'Low or out', n('Low') + n('Out'), 'red'],
+  chipsFor([['all', 'All Dasma Branch items', menu.length, ''], ['No recipe', 'No recipe yet', n('No recipe'), 'amber'], ['attention', 'Low or out', n('Low') + n('Out'), 'red'],
     ['OK', 'Enough supplies', n('OK'), 'okc']], inv.rfilter, k => { inv.rfilter = k; });
   const q = $('#invQ').value.trim().toLowerCase(), order = {Out: 0, Low: 1, 'No recipe': 2, 'Not counted': 3, OK: 4};
   const list = menu.filter(m => (inv.rfilter === 'all' || (inv.rfilter === 'attention' ? (st(m) === 'Low' || st(m) === 'Out') : st(m) === inv.rfilter))
