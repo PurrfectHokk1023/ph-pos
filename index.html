@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PH Point of Sale</title>
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#43A047">
+<meta name="theme-color" content="#122565">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -14,17 +14,20 @@
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400..700&family=Montserrat:wght@400;500;600;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-:root{--green:#43A047;--green-d:#388E3C;--bar:#4CAF50;--bg:#ECEFF1;--card:#fff;--ink:#212121;--muted:#757575;--line:#E0E0E0;--red:#E53935;color-scheme:light}
+/* Brand colours from the Purrfect Hokkaido logo (Vince, 3 Nov): navy bar, green actions, teal accents, orange highlights */
+:root{--green:#448F18;--green-d:#2F6A10;--bar:#122565;--navy:#122565;--teal:#108092;--orange:#EA6010;--bg:#E8E8E8;--card:#fff;--ink:#1A2A44;--muted:#5B6578;--line:#D5D8E0;--red:#D0480A;
+  --display:Fredoka,ui-rounded,'Arial Rounded MT Bold',system-ui,sans-serif;color-scheme:light}
+h1,h2,.btn,.tile .nm,.big,.stepper output,.day,.tools select,.login h2,.rrow .no,.rrow .amt,.sum .tot,.line b,.role{font-family:var(--display)}
 *{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none!important}
 html,body{height:100%}
-body{background:var(--bg);color:var(--ink);font:400 15px/1.35 Roboto,system-ui,sans-serif;-webkit-tap-highlight-color:transparent;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font:400 15px/1.4 Montserrat,system-ui,sans-serif;-webkit-tap-highlight-color:transparent;overflow:hidden}
 button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .app{display:grid;grid-template-columns:1fr minmax(320px,32%);height:100%}
 .bar{height:56px;display:flex;align-items:center;gap:12px;padding:0 16px;padding-left:max(16px,env(safe-area-inset-left));background:var(--bar);color:#fff;box-shadow:0 2px 4px rgb(0 0 0/.2);position:relative;z-index:2}
-.bar h1{font-weight:500;font-size:20px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar h1{font-weight:600;font-size:22px;letter-spacing:.01em;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bar img{height:34px;width:34px;border-radius:8px;background:#fff;padding:2px}
 .bar .ib{width:40px;height:40px;border-radius:50%;display:grid;place-items:center}
 .bar .ib:active{background:rgb(255 255 255/.2)}
@@ -36,14 +39,14 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .grid{flex:1;overflow:auto;padding:12px 16px;padding-left:max(16px,env(safe-area-inset-left));display:grid;grid-template-columns:repeat(auto-fill,minmax(124px,1fr));grid-auto-rows:132px;gap:10px;align-content:start}
 .tile{position:relative;height:100%;border-radius:4px;overflow:hidden;background:var(--c,#9E9E9E);box-shadow:0 1px 2px rgb(0 0 0/.2);text-align:left;display:flex;flex-direction:column;justify-content:flex-end}
 .tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.tile .nm{position:relative;background:rgb(0 0 0/.55);color:#fff;font-size:13px;font-weight:500;line-height:1.2;padding:6px 7px 5px;display:grid;gap:1px}
+.tile .nm{position:relative;background:rgb(18 37 101/.78);color:#fff;font-size:14px;font-weight:600;line-height:1.2;padding:6px 7px 5px;display:grid;gap:1px}
 .tile .nm small{font-weight:400;opacity:.9;font-size:12px}
 .tile.plain .nm{background:rgb(0 0 0/.18)}
 .tile:active{transform:scale(.97)}
-.tile .q{position:absolute;top:6px;right:6px;min-width:24px;height:24px;border-radius:12px;background:var(--green);color:#fff;font-weight:700;font-size:13px;display:grid;place-items:center;padding:0 6px;box-shadow:0 1px 3px rgb(0 0 0/.3)}
+.tile .q{position:absolute;top:6px;right:6px;min-width:24px;height:24px;border-radius:12px;background:var(--orange);color:#fff;font-weight:700;font-size:13px;display:grid;place-items:center;padding:0 6px;box-shadow:0 1px 3px rgb(0 0 0/.3)}
 .empty{grid-column:1/-1;color:var(--muted);padding:24px;text-align:center}
 .right{display:flex;flex-direction:column;background:var(--card);border-left:1px solid var(--line);min-height:0}
-.right .bar{background:var(--card);color:var(--ink);box-shadow:0 1px 0 var(--line)}
+.right .bar{background:var(--card);color:var(--navy);box-shadow:0 1px 0 var(--line)}
 .right .bar svg{fill:var(--muted)}
 .right .bar .ib:active{background:#eee}
 .lines{flex:1;overflow:auto}
@@ -59,7 +62,7 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .sum .disc{color:var(--green-d)}
 .sum .tot{font-size:18px;font-weight:700;padding-top:4px}
 .acts{display:grid;grid-template-columns:auto 1fr;gap:8px;padding:10px 16px calc(12px + env(safe-area-inset-bottom));padding-right:max(16px,env(safe-area-inset-right))}
-.btn{height:52px;border-radius:4px;font-weight:500;font-size:16px;text-transform:uppercase;letter-spacing:.03em;padding:0 16px}
+.btn{height:52px;border-radius:8px;font-weight:600;font-size:17px;text-transform:uppercase;letter-spacing:.04em;padding:0 16px}
 .btn.g{background:var(--green);color:#fff;box-shadow:0 2px 3px rgb(0 0 0/.2)}
 .btn.g:disabled{background:#BDBDBD;box-shadow:none}
 .btn.o{border:1px solid var(--line);color:var(--green-d);background:#fff}
@@ -86,7 +89,7 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .pays .btn{height:60px;font-size:14px}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .note{font-size:13px;color:var(--muted)}
-.day{display:flex;justify-content:space-between;gap:8px;font-weight:500;font-size:14px;color:var(--green-d);padding:10px 2px 4px;border-bottom:2px solid #E8F5E9;position:sticky;top:-16px;background:#fff}
+.day{display:flex;justify-content:space-between;gap:8px;font-weight:600;font-size:15px;color:var(--teal);padding:10px 2px 4px;border-bottom:2px solid #E8F5E9;position:sticky;top:-16px;background:#fff}
 .day span:last-child{color:var(--muted);font-weight:400;font-variant-numeric:tabular-nums}
 .rrow{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;align-items:center;width:100%;text-align:left;padding:10px 2px;border-bottom:1px solid var(--line)}
 .rrow:active{background:#f5f5f5}
@@ -96,10 +99,10 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .rlist{display:grid}
 .rprev{font:12px/1.35 'Roboto Mono',monospace;white-space:pre-wrap;background:#FAFAFA;border:1px solid var(--line);border-radius:4px;padding:10px;overflow:auto;max-height:50vh}
 .warn{color:var(--red);font-size:14px}
-.login{position:fixed;inset:0;z-index:30;background:linear-gradient(160deg,#43A047,#2E7D32);display:grid;place-items:center;padding:16px}
+.login{position:fixed;inset:0;z-index:30;background:linear-gradient(160deg,#122565,#108092);display:grid;place-items:center;padding:16px}
 .login form{background:#fff;border-radius:8px;width:min(380px,100%);padding:24px 20px;display:grid;gap:14px;box-shadow:0 10px 30px rgb(0 0 0/.3)}
 .login img{width:84px;height:84px;border-radius:18px;justify-self:center}
-.login h2{text-align:center;font-size:22px;font-weight:700;color:#2E7D32}
+.login h2{text-align:center;font-size:24px;font-weight:700;color:var(--navy)}
 .login p.sub{text-align:center;color:var(--muted);font-size:13px;margin-top:-8px}
 .login label{display:grid;gap:6px;font-size:13px;color:var(--muted)}
 .login input{font:inherit;font-size:17px;padding:11px;border:1px solid var(--line);border-radius:4px;color:var(--ink)}
@@ -205,9 +208,9 @@ function catalogue() {
   }
   const edits = jget('pos-edits') || [], em = Object.fromEntries(edits.map(e => [e.key, e]));
   const out = base.map(b => { const e = em[b.key]; return e ? {...b, name: e.name || b.name, cat: e.cat || b.cat, price: e.price == null ? b.price : e.price,
-    hidden: !!e.hidden, color: e.color || b.color, edited: true} : b; });
+    hidden: !!e.hidden, color: e.color || b.color, edited: true, lv: e.lv || ''} : b; });
   for (const e of edits) if (!base.some(b => b.key === e.key)) out.push({key: e.key, name: e.name, cat: e.cat || 'Other', price: e.price || 0,
-    hidden: !!e.hidden, color: e.color || '#9E9E9E', photo: PHOTOS[e.name] || '', edited: true, added: true});
+    hidden: !!e.hidden, color: e.color || '#9E9E9E', photo: PHOTOS[e.name] || '', edited: true, added: true, lv: e.lv || ''});
   const seen = [...new Set(out.map(i => i.cat))];
   CATS = [...DATA.cats.filter(c => seen.includes(c)), ...seen.filter(c => !DATA.cats.includes(c)).sort()];
   out.sort((x, y) => CATS.indexOf(x.cat) - CATS.indexOf(y.cat) || x.name.toLowerCase().localeCompare(y.name.toLowerCase()));
@@ -876,6 +879,12 @@ function handleSave(r) {
   jset('pos-edits', r.edits); catalogue(); buildCats(); render();
   return r;
 }
+const lvSync = keys => api.post({pos: 'lvsync', token: session && session.token, keys}).then(r => {
+  if (r.relogin) { logout(r.error); throw new Error(r.error); }
+  if (r.edits) { jset('pos-edits', r.edits); catalogue(); buildCats(); render(); }
+  if (!r.ok && !r.synced) throw new Error(r.error || 'Loyverse did not accept the change');
+  return r;
+});
 const saveItems = items => api.post({pos: 'save', token: session && session.token, items}).then(handleSave);
 const resetItems = keys => api.post({pos: 'reset', token: session && session.token, items: keys.map(key => ({key}))}).then(handleSave);
 const lvNote = () => { const lv = jget('pos-lv');
@@ -900,7 +909,7 @@ function showManage() {
         list.append(el('div', {className: 'day'}, [el('span', {textContent: c}), el('span', {textContent: xs.length + (xs.length === 1 ? ' item' : ' items')})]));
         for (const i of xs) {
           const b = el('button', {className: 'rrow'}, [el('span', {className: 'tm', textContent: peso(i.price)}),
-            el('span', {className: 'no'}, [tidy(i.name), el('small', {textContent: [i.hidden ? 'Hidden' : '', i.added ? 'Added in POS' : i.edited ? 'Edited in POS' : 'From Loyverse'].filter(Boolean).join(' · ')})]),
+            el('span', {className: 'no'}, [tidy(i.name), el('small', {textContent: [i.hidden ? 'Hidden' : '', i.added ? 'Added in POS' : i.edited ? 'Edited in POS' : 'From Loyverse', i.edited ? (i.lv || 'not in Loyverse yet') : ''].filter(Boolean).join(' · ')})]),
             el('span', {className: 'amt', textContent: 'Edit'})]);
           if (i.hidden) b.style.opacity = '.55';
           b.onclick = () => editItem(i, draw);
@@ -920,7 +929,14 @@ function showManage() {
     };
     addB.onclick = () => editItem(null, draw);
     ren.onclick = () => renameCat(draw);
-    bd.append(info, el('div', {className: 'row3'}, [upd, ren, addB]), q, list);
+    const sync = el('button', {className: 'btn o', textContent: 'Sync changes to Loyverse'});
+    sync.onclick = () => {
+      sync.disabled = true; sync.textContent = 'Syncing\u2026';
+      lvSync(null).then(r => { toast(r.synced + ' item' + (r.synced === 1 ? '' : 's') + ' updated in Loyverse' + (r.error ? ' \u00b7 some failed' : '')); draw(); })
+        .catch(e => toast('Loyverse sync failed: ' + e.message)).finally(() => { sync.disabled = false; sync.textContent = 'Sync changes to Loyverse'; });
+    };
+    bd.append(info, el('div', {className: 'row3'}, [upd, ren, addB]), sync,
+      el('p', {className: 'note', textContent: 'Sync sends every POS change that is not in Loyverse yet (name, category, price, hidden) to Loyverse. Admin only.'}), q, list);
   });
 }
 
@@ -934,6 +950,7 @@ function editItem(i, after) {
     const hid = el('input', {type: 'checkbox', checked: !!(i && i.hidden)});
     const err = el('p', {className: 'warn'});
     const save = el('button', {className: 'btn g', textContent: 'Save'});
+    const toLv = el('input', {type: 'checkbox', checked: true});
     const btns = [save];
     if (i && i.edited) {
       const rs = el('button', {className: 'btn o', textContent: i.added ? 'Delete item' : 'Reset to Loyverse'});
@@ -947,11 +964,17 @@ function editItem(i, after) {
       if (price == null || !(price >= 0)) { err.textContent = 'Enter a price.'; return; }
       save.disabled = true;
       saveItems([{key: i ? i.key : '', name, cat: cat.value.trim() || 'Other', price, hidden: hid.checked}])
-        .then(() => { toast('Saved for every POS device'); close(); if (after) after(); })
+        .then(r => {
+          if (!toLv.checked) { toast('Saved for every POS device'); close(); if (after) after(); return; }
+          const key = i ? i.key : ((r.edits || []).filter(e => e.key.startsWith('new:') && e.name === name).map(e => e.key).sort().pop());
+          return lvSync([key]).then(s => { toast(s.ok ? 'Saved and updated in Loyverse' : 'Saved, but Loyverse said: ' + s.error); close(); if (after) after(); })
+            .catch(e2 => { toast('Saved in the POS, but not in Loyverse: ' + e2.message); close(); if (after) after(); });
+        })
         .catch(e => { err.textContent = e.message; save.disabled = false; });
     };
     bd.append(el('label', {}, ['Name', nm]), el('label', {}, ['Category', cat]), dl, el('label', {}, ['Price (\u20b1)', pr]),
-      el('label', {className: 'tog'}, [el('span', {textContent: 'Hide from the register'}), hid]), err,
+      el('label', {className: 'tog'}, [el('span', {textContent: 'Hide from the register'}), hid]),
+      el('label', {className: 'tog'}, [el('span', {textContent: 'Also update in Loyverse'}), toLv]), err,
       el('div', {className: btns.length > 1 ? 'row2' : ''}, btns));
   });
 }
