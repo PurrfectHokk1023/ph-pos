@@ -101,9 +101,10 @@ td.wrap{text-align:left;white-space:normal}
 .lv{font-size:12px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}.lv b{color:var(--ink);font-size:14px}
 .flag{display:inline-flex;align-items:center;gap:4px;font:600 12px Fredoka,sans-serif;color:#fff;background:var(--bad);border-radius:10px;padding:1px 8px;margin-left:6px}
 .flag.amber{background:var(--orange)}
+.dlg select{font:inherit;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:6px}.dlg form{max-height:90vh;overflow:auto}
 .acts{display:flex;gap:6px}.acts .btn{padding:6px 10px}
 .dlg{position:fixed;inset:0;background:rgb(0 0 0/.4);display:grid;place-items:center;z-index:40;padding:16px}
-.dlg form{background:#fff;border-radius:10px;padding:18px;width:min(380px,100%);display:grid;gap:10px}
+.dlg form{background:#fff;border-radius:10px;padding:18px;width:min(460px,100%);display:grid;gap:10px}
 .dlg h3{font:600 18px Fredoka,sans-serif;color:var(--navy)}.dlg label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
 .dlg input{font:inherit;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:6px}
 .dlg .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -167,9 +168,13 @@ td.wrap{text-align:left;white-space:normal}
   </nav>
 
   <section id="pageInv" hidden style="display:grid;gap:14px">
-    <p class="note">Stock for each item goes down by every Loyverse sale (refunds put back) since its last count. Items flash red when what is left is at or under their low level (20% of full by default) and need a restock. Tap <b>Restock</b> when new stock arrives or <b>Count</b> after counting the shelf.</p>
+    <div class="seg" role="group" aria-label="Inventory view" style="width:max-content">
+      <button type="button" data-iview="supplies" aria-pressed="true">Supplies</button>
+      <button type="button" data-iview="recipes" aria-pressed="false">Recipes</button>
+    </div>
+    <p class="note" id="invNote"></p>
     <div class="chips" id="invChips"></div>
-    <div class="controls"><input id="invQ" type="search" placeholder="Search items" style="font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px"></div>
+    <div class="controls" style="visibility:visible"><input id="invQ" type="search" placeholder="Search" style="font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px"><button class="btn" type="button" id="addSupply">+ Add supply</button></div>
     <div class="inv" id="invList"></div>
   </section>
 
@@ -395,71 +400,168 @@ function drawVoids(sel) {
     el('td', {className: 'neg', textContent: peso(v.amount)}), el('td', {className: 'wrap hide-narrow', textContent: v.reason}), el('td', {className: 'wrap hide-narrow', textContent: v.items})]));
 }
 
-// ---- inventory ------------------------------------------------------------------------------------
-const inv = {rows: null, filter: 'attention'};
+// ---- inventory (supplies + recipes) ---------------------------------------------------------------
+// Stock is kept per supply (cups, lids, powders, syrups...). Each menu item has a recipe (how much of each supply one
+// serving uses); every Loyverse sale takes its recipe off the supplies. A supply is flagged at or under its low level
+// (20% of full by default); a menu item is flagged when a supply in its recipe is.
+const inv = {data: null, view: 'supplies', filter: 'all', rfilter: 'all'};
 async function loadInv() {
   if (!session || session.role !== 'admin') return;
   try {
     const r = await fetch(API + '?pos=inventory&token=' + encodeURIComponent(session.token), {cache: 'no-store'}).then(x => x.json());
-    if (r.ok) { inv.rows = r.rows; drawInv(); }
+    if (r.ok) { inv.data = r; drawInv(); }
   } catch (e) {}
 }
+const fmtQ = n => String(Math.round(n * 100) / 100);
+const unitOf = s => (s && s.unit) || 'units';
+const initials = t => t.replace(/[^A-Za-z ]/g, '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+async function invSave(body, err, go) {
+  try {
+    const res = await fetch(API, {method: 'POST', body: JSON.stringify(Object.assign({token: session.token}, body))}).then(x => x.json());
+    if (!res.ok) { err.textContent = res.error || 'Could not save.'; if (go) go.disabled = false; return false; }
+    inv.data = res; drawInv(); return true;
+  } catch (er) { err.textContent = 'No internet connection.'; if (go) go.disabled = false; return false; }
+}
+function dialog(title, note, fields, okText, onOk, extra) {
+  const wrap = el('div', {className: 'dlg'}), f = el('form');
+  const err = el('p', {className: 'err'}), go = el('button', {className: 'go btn', type: 'submit', textContent: okText, style: 'background:var(--navy);color:#fff'});
+  const cancel = el('button', {className: 'btn', type: 'button', textContent: 'Cancel'}); cancel.onclick = () => wrap.remove();
+  f.append(el('h3', {textContent: title}), ...(note ? [el('p', {className: 'note', textContent: note})] : []), ...fields, ...(extra || []), err, el('div', {className: 'row'}, [cancel, go]));
+  f.onsubmit = async e => { e.preventDefault(); go.disabled = true; err.textContent = ''; if (await onOk(err, go)) wrap.remove(); };
+  wrap.append(f); wrap.onclick = e => { if (e.target === wrap) wrap.remove(); };
+  document.body.append(wrap); setTimeout(() => { const i = f.querySelector('input,select'); if (i) i.focus(); }, 50);
+  return wrap;
+}
+function chipsFor(defs, cur, set) {
+  $('#invChips').replaceChildren(...defs.map(([key, label, count, cls]) => {
+    const b = el('button', {className: 'chip ' + cls, type: 'button'}, [el('b', {textContent: String(count)}), el('span', {textContent: label})]);
+    b.setAttribute('aria-pressed', String(cur === key)); b.onclick = () => { set(key); drawInv(); }; return b;
+  }));
+}
 function drawInv() {
-  if (!inv.rows) return;
-  const rows = inv.rows, n = s => rows.filter(r => r.status === s).length;
-  const low = n('Low'), out = n('Out'), ok = n('OK'), nc = n('Not counted');
-  const badge = $('#invBadge'); badge.hidden = !(low + out); badge.textContent = low + out;
-  const chip = (key, label, count, cls) => { const b = el('button', {className: 'chip ' + cls, type: 'button'}, [el('b', {textContent: String(count)}), el('span', {textContent: label})]);
-    b.setAttribute('aria-pressed', String(inv.filter === key)); b.onclick = () => { inv.filter = key; drawInv(); }; return b; };
-  $('#invChips').replaceChildren(chip('attention', 'Need restock (low + out)', low + out, 'red'), chip('Out', 'Out of stock', out, 'red'), chip('Low', 'Running low', low, 'amber'),
-    chip('OK', 'In stock', ok, 'okc'), chip('Not counted', 'Not counted yet', nc, ''), chip('all', 'All items', rows.length, ''));
+  if (!inv.data) return;
+  const sup = inv.data.rows, n = s => sup.filter(r => r.status === s).length;
+  const badge = $('#invBadge'); badge.hidden = !(n('Low') + n('Out')); badge.textContent = n('Low') + n('Out');
+  document.querySelectorAll('[data-iview]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.iview === inv.view)));
+  $('#addSupply').hidden = inv.view !== 'supplies';
+  $('#invQ').placeholder = inv.view === 'supplies' ? 'Search supplies' : 'Search menu items';
+  if (inv.view === 'supplies') drawSupplies(); else drawRecipes();
+}
+function drawSupplies() {
+  const rows = inv.data.rows, n = s => rows.filter(r => r.status === s).length;
+  $('#invNote').innerHTML = 'Every sale takes its recipe amounts off these supplies (refunds put them back). A supply is flagged when what is left is at or under its low level (20% of full by default). Tap <b>Restock</b> when a delivery arrives, <b>Count</b> after counting the shelf.';
+  chipsFor([['attention', 'Need restock (low + out)', n('Low') + n('Out'), 'red'], ['Out', 'Out of stock', n('Out'), 'red'], ['Low', 'Running low', n('Low'), 'amber'],
+    ['OK', 'In stock', n('OK'), 'okc'], ['Not counted', 'Not counted yet', n('Not counted'), ''], ['all', 'All supplies', rows.length, '']], inv.filter, k => { inv.filter = k; });
   const q = $('#invQ').value.trim().toLowerCase(), order = {Out: 0, Low: 1, OK: 2, 'Not counted': 3};
   const list = rows.filter(r => (inv.filter === 'all' || (inv.filter === 'attention' ? (r.status === 'Low' || r.status === 'Out') : r.status === inv.filter))
-    && (!q || (r.item + ' ' + tidy(r.item).name + ' ' + r.cat).toLowerCase().includes(q)))
-    .sort((a, b) => order[a.status] - order[b.status] || (a.pct || 0) - (b.pct || 0) || a.item.localeCompare(b.item));
+    && (!q || r.supply.toLowerCase().includes(q)))
+    .sort((a, b) => order[a.status] - order[b.status] || (a.pct || 0) - (b.pct || 0) || a.supply.localeCompare(b.supply));
   const box = $('#invList'); box.replaceChildren();
-  if (!list.length) { box.append(el('p', {className: 'empty', textContent: inv.filter === 'attention' ? 'Nothing needs a restock right now.' : 'No items here.'})); return; }
+  if (!rows.length) { box.append(el('p', {className: 'empty', textContent: 'No supplies yet. Tap + Add supply.'})); return; }
+  if (!list.length) { box.append(el('p', {className: 'empty', textContent: inv.filter === 'attention' ? 'No supply needs a restock right now.' : 'No supplies here.'})); return; }
   for (const r of list) {
-    const t = tidy(r.item);
-    const pic = r.image ? el('img', {src: r.image, alt: '', loading: 'lazy'}) : el('div', {className: 'ph', textContent: t.name.replace(/[^A-Za-z ]/g, '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()});
     const flag = r.status === 'Out' ? el('span', {className: 'flag', textContent: '⚑ OUT OF STOCK'}) : r.status === 'Low' ? el('span', {className: 'flag', textContent: '⚑ RESTOCK'}) : null;
-    const nm = el('div', {className: 'nm'}, [el('b', {}, [t.name, ...(flag ? [flag] : [])]), el('span', {textContent: [t.size, r.cat].filter(Boolean).join(' · ')})]);
+    const usedIn = r.usedBy.length ? 'used in ' + r.usedBy.length + ' item' + (r.usedBy.length > 1 ? 's' : '') : 'not in any recipe yet';
+    const nm = el('div', {className: 'nm'}, [el('b', {}, [r.supply, ...(flag ? [flag] : [])]), el('span', {textContent: unitOf(r) + ' · ' + usedIn, title: r.usedBy.map(i => tidy(i).name).join(', ')})]);
     const stock = el('div', {className: 'stock'});
     if (r.tracked) {
       const pctv = Math.max(0, Math.min(1, r.pct || 0));
       stock.append(el('div', {className: 'bar'}, [el('i', {style: 'width:' + (pctv * 100).toFixed(0) + '%'})]),
-        el('div', {className: 'lv'}, [el('b', {textContent: String(r.left)}), ' left of ' + r.full + ' · ' + Math.round(pctv * 100) + '% · sold ' + r.sold + ' since count · low at ' + r.low + '%']));
+        el('div', {className: 'lv'}, [el('b', {textContent: fmtQ(r.left)}), ' ' + unitOf(r) + ' left of ' + fmtQ(r.full) + ' · ' + Math.round(pctv * 100) + '% · used ' + fmtQ(r.used) + ' since count · low at ' + r.low + '%']));
     } else stock.append(el('div', {className: 'lv', textContent: 'Not counted yet. Tap Count to start tracking.'}));
     const restock = el('button', {className: 'btn', type: 'button', textContent: 'Restock'}), count = el('button', {className: 'btn', type: 'button', textContent: 'Count'});
-    restock.onclick = () => stockDialog(r, 'restock'); count.onclick = () => stockDialog(r, 'count');
+    const edit = el('button', {className: 'btn', type: 'button', textContent: 'Edit', title: 'Unit / remove'});
+    restock.onclick = () => stockDialog(r, 'restock'); count.onclick = () => stockDialog(r, 'count'); edit.onclick = () => supplyDialog(r);
     if (!r.tracked) restock.hidden = true;
-    box.append(el('div', {className: 'ir' + (r.status === 'Low' ? ' low' : r.status === 'Out' ? ' out' : '')}, [pic, nm, stock, el('div', {className: 'acts'}, [restock, count])]));
+    box.append(el('div', {className: 'ir' + (r.status === 'Low' ? ' low' : r.status === 'Out' ? ' out' : '')}, [el('div', {className: 'ph', textContent: initials(r.supply)}), nm, stock, el('div', {className: 'acts'}, [restock, count, edit])]));
   }
 }
 function stockDialog(r, mode) {
-  const wrap = el('div', {className: 'dlg'}), f = el('form');
+  const u = unitOf(r);
   const qty = el('input', {type: 'number', min: 0, step: 'any', required: true, inputMode: 'decimal', value: mode === 'count' && r.tracked ? Math.max(0, r.left) : ''});
   const full = el('input', {type: 'number', min: 0, step: 'any', placeholder: 'same as count', value: mode === 'count' && r.tracked ? r.full : ''});
-  const low = el('input', {type: 'number', min: 1, max: 99, step: 1, value: r.tracked ? r.low : 20});
-  const err = el('p', {className: 'err'}), go = el('button', {className: 'go btn', type: 'submit', textContent: mode === 'restock' ? 'Add to stock' : 'Save count', style: 'background:var(--navy);color:#fff'});
-  const cancel = el('button', {className: 'btn', type: 'button', textContent: 'Cancel'}); cancel.onclick = () => wrap.remove();
-  f.append(el('h3', {textContent: (mode === 'restock' ? 'Restock ' : 'Count ') + tidy(r.item).name}),
-    el('p', {className: 'note', textContent: mode === 'restock' ? 'How many pieces arrived? They are added to the ' + (r.left || 0) + ' left, and the new total becomes "full".' : 'How many are on hand right now? Sales from this moment on come off this number.'}),
-    el('label', {}, [mode === 'restock' ? 'Pieces received' : 'Pieces on hand', qty]),
-    ...(mode === 'count' ? [el('div', {className: 'row'}, [el('label', {}, ['Full stock (par)', full]), el('label', {}, ['Flag when at or under (%)', low])])] : []),
-    err, el('div', {className: 'row'}, [cancel, go]));
-  f.onsubmit = async e => {
-    e.preventDefault(); go.disabled = true; err.textContent = '';
-    try {
-      const body = {pos: 'stock', token: session.token, items: [{item: r.item, mode, qty: Number(qty.value), full: mode === 'count' && full.value !== '' ? Number(full.value) : undefined, low: mode === 'count' ? Number(low.value) : undefined}]};
-      const res = await fetch(API, {method: 'POST', body: JSON.stringify(body)}).then(x => x.json());
-      if (!res.ok) { err.textContent = res.error || 'Could not save.'; go.disabled = false; return; }
-      inv.rows = res.rows; wrap.remove(); drawInv();
-    } catch (er) { err.textContent = 'No internet connection.'; go.disabled = false; }
-  };
-  wrap.append(f); wrap.onclick = e => { if (e.target === wrap) wrap.remove(); };
-  document.body.append(wrap); setTimeout(() => qty.focus(), 50);
+  const low = el('input', {type: 'number', min: 1, max: 99, step: 1, value: r.low || 20});
+  dialog((mode === 'restock' ? 'Restock ' : 'Count ') + r.supply,
+    mode === 'restock' ? 'How much arrived (in ' + u + ')? It is added to the ' + fmtQ(r.left || 0) + ' left, and the new total becomes "full".' : 'How much is on hand right now (in ' + u + ')? Sales from this moment on come off this number.',
+    [el('label', {}, [mode === 'restock' ? 'Received (' + u + ')' : 'On hand (' + u + ')', qty]),
+      ...(mode === 'count' ? [el('div', {className: 'row'}, [el('label', {}, ['Full stock (' + u + ')', full]), el('label', {}, ['Flag at or under (%)', low])])] : [])],
+    mode === 'restock' ? 'Add to stock' : 'Save count',
+    (err, go) => invSave({pos: 'stock', items: [{supply: r.supply, mode, qty: Number(qty.value), full: mode === 'count' && full.value !== '' ? Number(full.value) : undefined, low: mode === 'count' ? Number(low.value) : undefined}]}, err, go));
 }
+function supplyDialog(r) {
+  const name = el('input', {required: true, maxLength: 120, value: r ? r.supply : '', placeholder: 'e.g. Cups 8oz', readOnly: !!r});
+  const unit = el('input', {maxLength: 20, value: r ? r.unit : '', placeholder: 'pcs, g, ml, pack…'});
+  const extra = [];
+  if (r) {
+    const rm = el('button', {className: 'btn', type: 'button', textContent: 'Remove this supply', style: 'color:var(--bad)'});
+    rm.onclick = async () => {
+      if (!confirm('Remove ' + r.supply + '? Recipes that use it stop counting it.')) return;
+      const err = rm.closest('form').querySelector('.err');
+      if (await invSave({pos: 'stock', items: [{supply: r.supply, mode: 'remove'}]}, err)) rm.closest('.dlg').remove();
+    };
+    extra.push(rm);
+  }
+  dialog(r ? 'Edit ' + r.supply : 'Add a supply', 'The unit is what you count and what recipes use (pieces, grams, ml, packs…).',
+    [el('label', {}, ['Supply', name]), el('label', {}, ['Unit', unit])], r ? 'Save' : 'Add supply',
+    (err, go) => invSave({pos: 'stock', items: [{supply: name.value.trim(), mode: 'add', unit: unit.value.trim()}]}, err, go), extra);
+}
+function drawRecipes() {
+  const items = inv.data.items || {}, menu = inv.data.menu || [];
+  const st = m => items[m.item] ? items[m.item].status : 'No recipe';
+  const n = s => menu.filter(m => st(m) === s).length;
+  $('#invNote').innerHTML = 'A recipe says how much of each supply one serving uses. Every sale of the item takes those amounts off the supplies. An item is flagged when a supply in its recipe runs low; <b>can make</b> is how many more servings the counted supplies cover.';
+  chipsFor([['all', 'All menu items', menu.length, ''], ['No recipe', 'No recipe yet', n('No recipe'), 'amber'], ['attention', 'Low or out', n('Low') + n('Out'), 'red'],
+    ['OK', 'Enough supplies', n('OK'), 'okc']], inv.rfilter, k => { inv.rfilter = k; });
+  const q = $('#invQ').value.trim().toLowerCase(), order = {Out: 0, Low: 1, 'No recipe': 2, 'Not counted': 3, OK: 4};
+  const list = menu.filter(m => (inv.rfilter === 'all' || (inv.rfilter === 'attention' ? (st(m) === 'Low' || st(m) === 'Out') : st(m) === inv.rfilter))
+    && (!q || (m.item + ' ' + tidy(m.item).name + ' ' + m.cat).toLowerCase().includes(q)))
+    .sort((a, b) => order[st(a)] - order[st(b)] || a.item.localeCompare(b.item));
+  const box = $('#invList'); box.replaceChildren();
+  if (!list.length) { box.append(el('p', {className: 'empty', textContent: 'No menu items here.'})); return; }
+  const bySup = Object.fromEntries(inv.data.rows.map(r => [r.supply, r]));
+  for (const m of list) {
+    const t = tidy(m.item), it = items[m.item], s = st(m);
+    const pic = m.image ? el('img', {src: m.image, alt: '', loading: 'lazy'}) : el('div', {className: 'ph', textContent: initials(t.name)});
+    const flag = s === 'Out' ? el('span', {className: 'flag', textContent: '⚑ OUT'}) : s === 'Low' ? el('span', {className: 'flag', textContent: '⚑ LOW'}) : null;
+    const nm = el('div', {className: 'nm'}, [el('b', {}, [t.name, ...(flag ? [flag] : [])]), el('span', {textContent: [t.size, m.cat].filter(Boolean).join(' · ')})]);
+    const rec = el('div', {className: 'stock'});
+    if (it) {
+      rec.append(el('div', {className: 'lv', textContent: it.recipe.map(x => fmtQ(x.qty) + ' ' + unitOf(bySup[x.supply]) + ' ' + x.supply).join(' · ')}));
+      if (it.canMake != null) rec.append(el('div', {className: 'lv'}, [el('b', {textContent: String(it.canMake)}), ' more can be made' + (it.short && s !== 'OK' ? ' · short on ' + it.short : '')]));
+      else rec.append(el('div', {className: 'lv', textContent: 'Count its supplies to see how many can be made.'}));
+    } else rec.append(el('div', {className: 'lv', textContent: 'No recipe yet. Sales of this item do not use up any supplies.'}));
+    const edit = el('button', {className: 'btn', type: 'button', textContent: it ? 'Edit recipe' : 'Add recipe'}); edit.onclick = () => recipeDialog(m);
+    box.append(el('div', {className: 'ir' + (s === 'Low' ? ' low' : s === 'Out' ? ' out' : '')}, [pic, nm, rec, el('div', {className: 'acts'}, [edit])]));
+  }
+}
+function recipeDialog(m) {
+  const sup = inv.data.rows, items = inv.data.items || {};
+  const lines = el('div', {style: 'display:grid;gap:6px'});
+  const dl = el('datalist', {id: 'supList'}, sup.map(s => el('option', {value: s.supply})));
+  const addLine = (supply, qty) => {
+    const s = el('input', {value: supply || '', placeholder: 'Supply', required: true, maxLength: 120}); s.setAttribute('list', 'supList');
+    const q = el('input', {type: 'number', min: 0, step: 'any', value: qty != null ? qty : '', placeholder: 'Qty', required: true, inputMode: 'decimal', style: 'width:90px'});
+    const u = el('span', {className: 'note', style: 'min-width:44px'}); const setU = () => { const r = sup.find(x => x.supply === s.value.trim()); u.textContent = r ? unitOf(r) : ''; }; s.oninput = setU; setU();
+    const x = el('button', {className: 'btn', type: 'button', textContent: '×', title: 'Remove line'});
+    const row = el('div', {className: 'rl', style: 'display:grid;grid-template-columns:1fr auto auto auto;gap:6px;align-items:center'}, [s, q, u, x]);
+    x.onclick = () => row.remove(); lines.append(row);
+  };
+  (items[m.item] ? items[m.item].recipe : []).forEach(x => addLine(x.supply, x.qty));
+  if (!lines.children.length) addLine();
+  const more = el('button', {className: 'btn', type: 'button', textContent: '+ Add a supply line'}); more.onclick = () => addLine();
+  const others = Object.keys(items).filter(k => k !== m.item).sort();
+  const copy = el('select', {}, [el('option', {value: '', textContent: others.length ? 'Copy from another item…' : 'No other recipes to copy yet'}), ...others.map(k => el('option', {value: k, textContent: tidy(k).name}))]);
+  copy.onchange = () => { if (!copy.value) return; lines.replaceChildren(); items[copy.value].recipe.forEach(x => addLine(x.supply, x.qty)); copy.value = ''; };
+  dialog('Recipe: ' + tidy(m.item).name, 'How much of each supply ONE serving uses, in that supply\'s unit. New supply names are added to the Supplies list.',
+    [dl, copy, lines, more], 'Save recipe', async (err, go) => {
+      const rows = [...lines.querySelectorAll('.rl')].map(r => { const [s, q] = r.querySelectorAll('input'); return {supply: s.value.trim(), qty: Number(q.value)}; }).filter(x => x.supply && x.qty > 0);
+      const fresh = [...new Set(rows.map(x => x.supply).filter(s => !sup.some(r => r.supply === s)))];
+      if (fresh.length && !(await invSave({pos: 'stock', items: fresh.map(s => ({supply: s, mode: 'add'}))}, err, go))) return false;
+      return invSave({pos: 'recipe', item: m.item, lines: rows}, err, go);
+    });
+}
+document.querySelectorAll('[data-iview]').forEach(b => b.onclick = () => { inv.view = b.dataset.iview; $('#invQ').value = ''; drawInv(); });
+$('#addSupply').onclick = () => supplyDialog(null);
 document.querySelectorAll('.tabs [data-tab]').forEach(b => b.onclick = () => {
   const inv1 = b.dataset.tab === 'inventory';
   document.querySelectorAll('.tabs [data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));

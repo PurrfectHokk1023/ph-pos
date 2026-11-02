@@ -283,7 +283,7 @@ function renderGrid() {
     const st = STOCK[i.key] || STOCK[i.name];
     if (st && (st.status === 'Low' || st.status === 'Out')) {
       const f = document.createElement('span'); f.className = 'st' + (st.status === 'Out' ? ' out' : '');
-      f.textContent = st.status === 'Out' ? 'OUT' : st.left + ' left'; b.append(f);
+      f.textContent = st.status === 'Out' ? 'OUT' : st.left + ' left'; if (st.short) f.title = 'Short on ' + st.short; b.append(f);
       if (st.status === 'Out') b.classList.add('out');
     }
     b.onclick = () => add(i.key);
@@ -1013,7 +1013,7 @@ var STOCK = {};   // var: renderGrid may run before this line
 function loadStock() {
   if (!session) return Promise.resolve();
   return api.get('pos=inventory&token=' + encodeURIComponent(session.token)).then(r => {
-    if (r.ok) { STOCK = Object.fromEntries(r.rows.filter(x => x.tracked).map(x => [x.item, x])); renderGrid(); }
+    if (r.ok) { STOCK = Object.fromEntries(Object.entries(r.items || {}).map(([k, v]) => [k, {status: v.status, left: v.canMake, short: v.short}])); renderGrid(); }   // per item, from its recipe's supplies
   }).catch(() => {});
 }
 setInterval(() => { if (!document.hidden) loadStock(); }, 5 * 60000);
