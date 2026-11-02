@@ -82,6 +82,32 @@ td.wrap{text-align:left;white-space:normal}
 .tbox{max-height:420px;overflow:auto}
 .empty{color:var(--muted);font-size:13px;padding:10px 0}
 .warnbar{background:#fff4e5;border:1px solid #f3c58b;color:#8a4b00;border-radius:8px;padding:10px 14px;font-size:13px}
+.tabs{display:flex;gap:4px;border-bottom:2px solid var(--line)}
+.tabs button{font:600 15px Fredoka,sans-serif;color:var(--muted);background:none;border:0;padding:8px 16px;margin-bottom:-2px;border-bottom:3px solid transparent;cursor:pointer}
+.tabs button[aria-selected=true]{color:var(--navy);border-bottom-color:var(--orange)}
+.tabs .badge{display:inline-block;min-width:20px;padding:0 6px;margin-left:6px;border-radius:10px;background:var(--bad);color:#fff;font-size:12px;line-height:20px}
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+.chip{border:1px solid var(--line);border-radius:8px;background:var(--card);padding:8px 14px;display:grid;min-width:120px;cursor:pointer;text-align:left;font:inherit}
+.chip b{font:600 24px Fredoka,sans-serif;color:var(--navy)}.chip span{font-size:12px;color:var(--muted)}
+.chip.red{border-left:4px solid var(--bad)}.chip.red b{color:var(--bad)}.chip.amber{border-left:4px solid var(--orange)}.chip.okc{border-left:4px solid var(--green)}
+.chip[aria-pressed=true]{outline:2px solid var(--navy)}
+.inv{display:grid;gap:8px}
+.ir{display:grid;grid-template-columns:48px minmax(0,1.6fr) minmax(0,1fr) auto;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.ir.low{border-left:5px solid var(--orange);background:#fff7f0}.ir.out{border-left:5px solid var(--bad);background:#fff1ee}
+.ir img,.ir .ph{width:48px;height:48px;border-radius:8px;object-fit:cover}.ir .ph{display:grid;place-items:center;background:#e3f1f3;color:var(--teal);font:700 16px Fredoka,sans-serif}
+.ir .nm b{font-weight:600}.ir .nm>span{display:block;font-size:12px;color:var(--muted)}
+.bar{height:10px;border-radius:5px;background:#eceef2;overflow:hidden}.bar i{display:block;height:100%;background:var(--green)}
+.ir.low .bar i{background:var(--orange)}.ir.out .bar i{background:var(--bad)}
+.lv{font-size:12px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}.lv b{color:var(--ink);font-size:14px}
+.flag{display:inline-flex;align-items:center;gap:4px;font:600 12px Fredoka,sans-serif;color:#fff;background:var(--bad);border-radius:10px;padding:1px 8px;margin-left:6px}
+.flag.amber{background:var(--orange)}
+.acts{display:flex;gap:6px}.acts .btn{padding:6px 10px}
+.dlg{position:fixed;inset:0;background:rgb(0 0 0/.4);display:grid;place-items:center;z-index:40;padding:16px}
+.dlg form{background:#fff;border-radius:10px;padding:18px;width:min(380px,100%);display:grid;gap:10px}
+.dlg h3{font:600 18px Fredoka,sans-serif;color:var(--navy)}.dlg label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.dlg input{font:inherit;font-size:16px;padding:9px;border:1px solid var(--line);border-radius:6px}
+.dlg .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (max-width:700px){.ir{grid-template-columns:44px 1fr;}.ir .stock,.ir .acts{grid-column:1/-1}}
 .login{position:fixed;inset:0;z-index:30;background:linear-gradient(160deg,#122565,#108092);display:grid;place-items:center;padding:16px}
 .login form{background:#fff;border-radius:10px;width:min(380px,100%);padding:24px 20px;display:grid;gap:12px}
 .login img{width:84px;height:84px;border-radius:16px;justify-self:center}
@@ -135,6 +161,20 @@ td.wrap{text-align:left;white-space:normal}
 
   <div class="warnbar" id="warn" hidden></div>
 
+  <nav class="tabs" role="tablist" aria-label="Pages">
+    <button type="button" role="tab" id="tabSales" aria-selected="true" data-tab="sales">Sales</button>
+    <button type="button" role="tab" id="tabInv" aria-selected="false" data-tab="inventory">Inventory<span class="badge" id="invBadge" hidden></span></button>
+  </nav>
+
+  <section id="pageInv" hidden style="display:grid;gap:14px">
+    <p class="note">Stock for each item goes down by every Loyverse sale (refunds put back) since its last count. Items flash red when what is left is at or under their low level (20% of full by default) and need a restock. Tap <b>Restock</b> when new stock arrives or <b>Count</b> after counting the shelf.</p>
+    <div class="chips" id="invChips"></div>
+    <div class="controls"><input id="invQ" type="search" placeholder="Search items" style="font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px"></div>
+    <div class="inv" id="invList"></div>
+  </section>
+
+  <section id="pageSales" style="display:grid;gap:18px">
+
   <p class="period" id="period">—</p>
   <div class="tiles">
     <div class="tile"><h3>Gross sales</h3><div class="big" id="tGross">—</div><div class="chg" id="cGross"></div></div>
@@ -169,6 +209,7 @@ td.wrap{text-align:left;white-space:normal}
       <div class="tbox"><table><thead><tr><th>Date</th><th>Type</th><th>Receipt</th><th>Amount</th><th class="hide-narrow">Reason</th><th class="hide-narrow">Items</th></tr></thead><tbody id="vBody"></tbody></table></div>
     </section>
   </div>
+  </section>
 </div>
 
 <script>
@@ -354,6 +395,80 @@ function drawVoids(sel) {
     el('td', {className: 'neg', textContent: peso(v.amount)}), el('td', {className: 'wrap hide-narrow', textContent: v.reason}), el('td', {className: 'wrap hide-narrow', textContent: v.items})]));
 }
 
+// ---- inventory ------------------------------------------------------------------------------------
+const inv = {rows: null, filter: 'attention'};
+async function loadInv() {
+  if (!session || session.role !== 'admin') return;
+  try {
+    const r = await fetch(API + '?pos=inventory&token=' + encodeURIComponent(session.token), {cache: 'no-store'}).then(x => x.json());
+    if (r.ok) { inv.rows = r.rows; drawInv(); }
+  } catch (e) {}
+}
+function drawInv() {
+  if (!inv.rows) return;
+  const rows = inv.rows, n = s => rows.filter(r => r.status === s).length;
+  const low = n('Low'), out = n('Out'), ok = n('OK'), nc = n('Not counted');
+  const badge = $('#invBadge'); badge.hidden = !(low + out); badge.textContent = low + out;
+  const chip = (key, label, count, cls) => { const b = el('button', {className: 'chip ' + cls, type: 'button'}, [el('b', {textContent: String(count)}), el('span', {textContent: label})]);
+    b.setAttribute('aria-pressed', String(inv.filter === key)); b.onclick = () => { inv.filter = key; drawInv(); }; return b; };
+  $('#invChips').replaceChildren(chip('attention', 'Need restock (low + out)', low + out, 'red'), chip('Out', 'Out of stock', out, 'red'), chip('Low', 'Running low', low, 'amber'),
+    chip('OK', 'In stock', ok, 'okc'), chip('Not counted', 'Not counted yet', nc, ''), chip('all', 'All items', rows.length, ''));
+  const q = $('#invQ').value.trim().toLowerCase(), order = {Out: 0, Low: 1, OK: 2, 'Not counted': 3};
+  const list = rows.filter(r => (inv.filter === 'all' || (inv.filter === 'attention' ? (r.status === 'Low' || r.status === 'Out') : r.status === inv.filter))
+    && (!q || (r.item + ' ' + tidy(r.item).name + ' ' + r.cat).toLowerCase().includes(q)))
+    .sort((a, b) => order[a.status] - order[b.status] || (a.pct || 0) - (b.pct || 0) || a.item.localeCompare(b.item));
+  const box = $('#invList'); box.replaceChildren();
+  if (!list.length) { box.append(el('p', {className: 'empty', textContent: inv.filter === 'attention' ? 'Nothing needs a restock right now.' : 'No items here.'})); return; }
+  for (const r of list) {
+    const t = tidy(r.item);
+    const pic = r.image ? el('img', {src: r.image, alt: '', loading: 'lazy'}) : el('div', {className: 'ph', textContent: t.name.replace(/[^A-Za-z ]/g, '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()});
+    const flag = r.status === 'Out' ? el('span', {className: 'flag', textContent: '⚑ OUT OF STOCK'}) : r.status === 'Low' ? el('span', {className: 'flag', textContent: '⚑ RESTOCK'}) : null;
+    const nm = el('div', {className: 'nm'}, [el('b', {}, [t.name, ...(flag ? [flag] : [])]), el('span', {textContent: [t.size, r.cat].filter(Boolean).join(' · ')})]);
+    const stock = el('div', {className: 'stock'});
+    if (r.tracked) {
+      const pctv = Math.max(0, Math.min(1, r.pct || 0));
+      stock.append(el('div', {className: 'bar'}, [el('i', {style: 'width:' + (pctv * 100).toFixed(0) + '%'})]),
+        el('div', {className: 'lv'}, [el('b', {textContent: String(r.left)}), ' left of ' + r.full + ' · ' + Math.round(pctv * 100) + '% · sold ' + r.sold + ' since count · low at ' + r.low + '%']));
+    } else stock.append(el('div', {className: 'lv', textContent: 'Not counted yet. Tap Count to start tracking.'}));
+    const restock = el('button', {className: 'btn', type: 'button', textContent: 'Restock'}), count = el('button', {className: 'btn', type: 'button', textContent: 'Count'});
+    restock.onclick = () => stockDialog(r, 'restock'); count.onclick = () => stockDialog(r, 'count');
+    if (!r.tracked) restock.hidden = true;
+    box.append(el('div', {className: 'ir' + (r.status === 'Low' ? ' low' : r.status === 'Out' ? ' out' : '')}, [pic, nm, stock, el('div', {className: 'acts'}, [restock, count])]));
+  }
+}
+function stockDialog(r, mode) {
+  const wrap = el('div', {className: 'dlg'}), f = el('form');
+  const qty = el('input', {type: 'number', min: 0, step: 'any', required: true, inputMode: 'decimal', value: mode === 'count' && r.tracked ? Math.max(0, r.left) : ''});
+  const full = el('input', {type: 'number', min: 0, step: 'any', placeholder: 'same as count', value: mode === 'count' && r.tracked ? r.full : ''});
+  const low = el('input', {type: 'number', min: 1, max: 99, step: 1, value: r.tracked ? r.low : 20});
+  const err = el('p', {className: 'err'}), go = el('button', {className: 'go btn', type: 'submit', textContent: mode === 'restock' ? 'Add to stock' : 'Save count', style: 'background:var(--navy);color:#fff'});
+  const cancel = el('button', {className: 'btn', type: 'button', textContent: 'Cancel'}); cancel.onclick = () => wrap.remove();
+  f.append(el('h3', {textContent: (mode === 'restock' ? 'Restock ' : 'Count ') + tidy(r.item).name}),
+    el('p', {className: 'note', textContent: mode === 'restock' ? 'How many pieces arrived? They are added to the ' + (r.left || 0) + ' left, and the new total becomes "full".' : 'How many are on hand right now? Sales from this moment on come off this number.'}),
+    el('label', {}, [mode === 'restock' ? 'Pieces received' : 'Pieces on hand', qty]),
+    ...(mode === 'count' ? [el('div', {className: 'row'}, [el('label', {}, ['Full stock (par)', full]), el('label', {}, ['Flag when at or under (%)', low])])] : []),
+    err, el('div', {className: 'row'}, [cancel, go]));
+  f.onsubmit = async e => {
+    e.preventDefault(); go.disabled = true; err.textContent = '';
+    try {
+      const body = {pos: 'stock', token: session.token, items: [{item: r.item, mode, qty: Number(qty.value), full: mode === 'count' && full.value !== '' ? Number(full.value) : undefined, low: mode === 'count' ? Number(low.value) : undefined}]};
+      const res = await fetch(API, {method: 'POST', body: JSON.stringify(body)}).then(x => x.json());
+      if (!res.ok) { err.textContent = res.error || 'Could not save.'; go.disabled = false; return; }
+      inv.rows = res.rows; wrap.remove(); drawInv();
+    } catch (er) { err.textContent = 'No internet connection.'; go.disabled = false; }
+  };
+  wrap.append(f); wrap.onclick = e => { if (e.target === wrap) wrap.remove(); };
+  document.body.append(wrap); setTimeout(() => qty.focus(), 50);
+}
+document.querySelectorAll('.tabs [data-tab]').forEach(b => b.onclick = () => {
+  const inv1 = b.dataset.tab === 'inventory';
+  document.querySelectorAll('.tabs [data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+  $('#pageInv').hidden = !inv1; $('#pageSales').hidden = inv1;
+  document.querySelector('.controls').style.visibility = inv1 ? 'hidden' : '';
+  if (inv1) loadInv(); else draw();
+});
+$('#invQ').oninput = drawInv;
+
 // ---- load -------------------------------------------------------------------------------------------
 let loading = false;
 async function load(fresh) {
@@ -368,6 +483,7 @@ async function load(fresh) {
     $('#warn').hidden = !(r.warnings && r.warnings.length); $('#warn').textContent = (r.warnings || []).join(' · ');
     $('#live').classList.remove('stale');
     draw();
+    loadInv();
   } catch (e) {
     $('#live').classList.add('stale');
     $('#warn').hidden = false; $('#warn').textContent = 'Could not update: ' + (e.message || 'no internet') + '. Showing the last numbers.';

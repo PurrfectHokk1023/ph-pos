@@ -44,6 +44,10 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .tile.plain .nm{background:rgb(0 0 0/.18)}
 .tile:active{transform:scale(.97)}
 .tile .q{position:absolute;top:6px;right:6px;min-width:24px;height:24px;border-radius:12px;background:var(--orange);color:#fff;font-weight:700;font-size:13px;display:grid;place-items:center;padding:0 6px;box-shadow:0 1px 3px rgb(0 0 0/.3)}
+.tile .st{position:absolute;top:6px;left:6px;border-radius:10px;padding:1px 7px;font:700 11px var(--display);color:#fff;background:var(--orange);box-shadow:0 1px 3px rgb(0 0 0/.3)}
+.tile .st.out{background:var(--red)}
+.tile.out img{filter:grayscale(.7);opacity:.75}
+.ib.spin svg{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .empty{grid-column:1/-1;color:var(--muted);padding:24px;text-align:center}
 .right{display:flex;flex-direction:column;background:var(--card);border-left:1px solid var(--line);min-height:0}
 .right .bar{background:var(--card);color:var(--navy);box-shadow:0 1px 0 var(--line)}
@@ -148,6 +152,7 @@ body[data-role="agent"] .admin-only{display:none!important}
     <div class="bar">
       <img src="img/cat-mark.webp" alt="">
       <h1>PH Point of Sale<span class="role" id="roleTag"></span></h1>
+      <button class="ib" id="syncBtn" aria-label="Sync everything" title="Sync with Loyverse"><svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6a6 6 0 0 1 5.65 8.03l1.46 1.46A8 8 0 0 0 12 4zm0 14a6 6 0 0 1-5.65-8.03L4.89 8.51A8 8 0 0 0 12 20v3l4-4-4-4z"/></svg></button>
       <button class="ib admin-only" id="manageBtn" aria-label="Manage items" title="Manage items"><svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75z"/></svg></button>
       <a class="ib admin-only" href="report.html" target="_blank" rel="noopener" aria-label="Open the Sales Report" title="Sales Report"><svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg></a>
       <button class="ib" id="printerBtn" aria-label="Printers" title="Printers"><svg viewBox="0 0 24 24"><path d="M19 8H5a3 3 0 0 0-3 3v6h4v4h12v-4h4v-6a3 3 0 0 0-3-3zm-3 11H8v-5h8zm3-7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-1-9H6v4h12z"/></svg></button>
@@ -275,6 +280,12 @@ function renderGrid() {
     const pr = document.createElement('small'); pr.textContent = peso(i.price); nm.append(pr);
     b.append(nm);
     if (inTicket[i.key]) { const q2 = document.createElement('span'); q2.className = 'q'; q2.textContent = inTicket[i.key]; b.append(q2); }
+    const st = STOCK[i.key] || STOCK[i.name];
+    if (st && (st.status === 'Low' || st.status === 'Out')) {
+      const f = document.createElement('span'); f.className = 'st' + (st.status === 'Out' ? ' out' : '');
+      f.textContent = st.status === 'Out' ? 'OUT' : st.left + ' left'; b.append(f);
+      if (st.status === 'Out') b.classList.add('out');
+    }
     b.onclick = () => add(i.key);
     return b;
   }));
@@ -997,8 +1008,41 @@ function renameCat(after) {
 }
 $('#manageBtn').onclick = showManage;
 
+// ---- stock flags + one-tap sync ---------------------------------------------------------------------
+var STOCK = {};   // var: renderGrid may run before this line
+function loadStock() {
+  if (!session) return Promise.resolve();
+  return api.get('pos=inventory&token=' + encodeURIComponent(session.token)).then(r => {
+    if (r.ok) { STOCK = Object.fromEntries(r.rows.filter(x => x.tracked).map(x => [x.item, x])); renderGrid(); }
+  }).catch(() => {});
+}
+setInterval(() => { if (!document.hidden) loadStock(); }, 5 * 60000);
+
+async function syncAll() {
+  const btn = $('#syncBtn');
+  if (btn.classList.contains('spin')) return;
+  btn.classList.add('spin');
+  const done = [];
+  try {
+    if (session && session.role === 'admin') {
+      try { const r = await lvSync(null); if (r.synced) done.push(r.synced + ' change' + (r.synced === 1 ? '' : 's') + ' sent to Loyverse'); if (r.error) done.push('some not sent'); }
+      catch (e) { done.push('Loyverse send failed'); }
+    }
+    const lv = await api.get('pos=loyverse');
+    if (lv.ok) { jset('pos-lv', {at: lv.at, items: lv.items}); done.push(lv.items.length + ' items from Loyverse'); }
+    await refreshEdits();
+    await loadStock();
+    catalogue(); buildCats(); render();
+    toast('Synced: ' + (done.join(' · ') || 'up to date'));
+  } catch (e) {
+    toast('Sync failed: ' + (e.message || 'no internet'));
+  } finally { btn.classList.remove('spin'); }
+}
+$('#syncBtn').onclick = syncAll;
+
 render();
 refreshEdits();
+loadStock();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
