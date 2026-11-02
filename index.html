@@ -436,6 +436,13 @@ function saveHistory(sale) {
   if (old) { try { const s = JSON.parse(old); if (!loadHistory().some(x => x.no === s.no)) saveHistory(s); } catch (e) {} try { localStorage.removeItem('pos-last'); } catch (e) {} }
 })();
 
+function markHistory(no, patch) {
+  const h = loadHistory(), x = h.find(r => r.no === no);
+  if (!x) return;
+  Object.assign(x, patch);
+  try { localStorage.setItem(HIST, JSON.stringify(h)); } catch (e) {}
+}
+
 function nextNo() {
   const d = new Date(Date.now() + 8 * 3600e3).toISOString().slice(2, 10).replace(/-/g, '');
   const key = 'pos-seq-' + d, n = Number(store.get(key) || 0) + 1; store.set(key, String(n));
@@ -517,25 +524,29 @@ function send(bytes) {
 }
 
 function browserPrint(s) {
-  const w = settings.paper === '32' ? 32 : 42, paper = settings.paper === '32' ? 58 : 80;
+  const w = settings.paper === '32' ? 32 : 42;
+  browserPrintText(receiptText(s, w).map(l => l.replace('@@TOTAL@@', '')).join('\n'), true);
+}
+function browserPrintText(text, withLogo) {
+  const paper = settings.paper === '32' ? 58 : 80;
   document.documentElement.style.setProperty('--paper', paper + 'mm');
   document.documentElement.style.setProperty('--rcfont', paper === 58 ? '10px' : '11px');   // 32 / 42 columns fit
   const rc = $('#rc');
-  const img = el('img', {src: LOGO.img, alt: 'Purrfect Hokkaido'});
-  rc.replaceChildren(img, el('div', {textContent: receiptText(s, w).map(l => l.replace('@@TOTAL@@', '')).join('\n') + '\n '}));
+  const img = withLogo ? el('img', {src: LOGO.img, alt: 'Purrfect Hokkaido'}) : null;
+  rc.replaceChildren(...(img ? [img] : []), el('div', {textContent: text + '\n '}));
   // The page is exactly as long as the receipt, so the paper stops right after the last line (Vince: save paper).
   const go = () => {
     rc.style.cssText = 'display:block;position:absolute;visibility:hidden;left:0;top:0;box-sizing:border-box;width:' + paper + 'mm;padding:3mm 3mm 0;'
       + 'font:' + (paper === 58 ? '10px' : '11px') + '/1.3 "Roboto Mono",monospace;white-space:pre-wrap';
-    rc.querySelector('img').style.cssText = 'display:block;width:60%;margin:0 auto 2mm';
+    if (img) img.style.cssText = 'display:block;width:60%;margin:0 auto 2mm';
     const mm = Math.ceil(rc.scrollHeight * 25.4 / 96) + 1;
-    rc.removeAttribute('style'); rc.querySelector('img').removeAttribute('style');
+    rc.removeAttribute('style'); if (img) img.removeAttribute('style');
     let st = document.getElementById('pagesize');
     if (!st) { st = document.createElement('style'); st.id = 'pagesize'; document.head.append(st); }
     st.textContent = '@page{size:' + paper + 'mm ' + mm + 'mm;margin:0}';
     window.print();
   };
-  if (!img.complete) { img.onload = go; return; }
+  if (img && !img.complete) { img.onload = go; return; }
   go();
 }
 
@@ -592,27 +603,46 @@ const bt = {
 };
 if (store.get('pos-bt-id')) bt.open().catch(() => {});   // reconnect quietly to the remembered printer
 
-async function printSale(s) {
+async function printJob(bytesFn, browserFn, what) {
   const want = settings.printer, n = settings.copies;
   if (want === 'bt' || (want === 'auto' && bt.known())) {
     try {
-      for (let i = 0; i < n; i++) await bt.write(escpos(s, Number(settings.paper)));
-      toast('Receipt sent to ' + bt.name());
+      for (let i = 0; i < n; i++) await bt.write(bytesFn());
+      toast(what + ' sent to ' + bt.name());
       return;
     } catch (e) {
-      if (want === 'bt') { toast('Bluetooth printer: ' + e.message + '. Open Settings > Connect Bluetooth printer.'); return; }
+      if (want === 'bt') { toast('Bluetooth printer: ' + e.message + '. Open Printers to connect it.'); return; }
     }
   }
   if (want === 'auto' || want === 'rawbt') {
     try {
-      for (let i = 0; i < n; i++) await send(escpos(s, Number(settings.paper)));
-      toast('Receipt sent to the printer');
+      for (let i = 0; i < n; i++) await send(bytesFn());
+      toast(what + ' sent to the printer');
       return;
     } catch (e) {
       if (want === 'rawbt') { toast('Printer app not reachable. Open Server for RawBT and try again.'); return; }
     }
   }
-  browserPrint(s);
+  browserFn();
+}
+const printSale = s => printJob(() => escpos(s, Number(settings.paper)), () => browserPrint(s), 'Receipt');
+
+// ---- void / refund slip -----------------------------------------------------------------------------
+function slipText(v, w) {
+  const rule = '-'.repeat(w), when = d => new Date(d).toLocaleString('en-PH', {timeZone: 'Asia/Manila', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+  const L = [ctr('PURRFECT HOKKAIDO', w), ctr(v.type === 'Void' ? '*** VOID ***' : '*** REFUND ***', w), '',
+    'Receipt #' + v.no, 'Sold: ' + when(v.soldAt), (v.type === 'Void' ? 'Voided: ' : 'Refunded: ') + when(new Date()), rule];
+  for (const l of v.lines) { L.push(...wrapw(l.name, w)); L.push(lr('  ' + l.qty + ' x ' + money(l.price), '-' + money(l.amount), w)); }
+  L.push(rule, '@@TOTAL@@' + lr(v.type === 'Void' ? 'VOIDED' : 'REFUNDED', money(v.amount), w), lr('Paid by', payLabel(v.payment), w), rule);
+  L.push(...wrapw('Reason: ' + v.reason, w), 'Done by: ' + roleName() + (settings.cashier ? ' (' + settings.cashier + ')' : ''), '', 'Signature: _____________________');
+  return L;
+}
+function printSlip(v) {
+  const w = Number(settings.paper) === 32 ? 32 : 42, lines = slipText(v, w);
+  const bytes = () => { const ESC = '\x1b', GS = '\x1d'; let t = ESC + '@' + ESC + 'a0';
+    for (const l of lines) t += l.startsWith('@@TOTAL@@') ? GS + '!\x01' + ESC + 'E1' + l.slice(9) + ESC + 'E0' + GS + '!\x00\n' : l + '\n';
+    return new TextEncoder().encode(t + '\n' + GS + 'V\x42\x00'); };
+  return printJob(bytes, () => browserPrintText(lines.map(l => l.replace('@@TOTAL@@', '')).join('\n'), false), (v.type === 'Void' ? 'Void' : 'Refund') + ' slip');
 }
 
 // ---- past receipts ----------------------------------------------------------------------------------
@@ -639,8 +669,10 @@ function showReceipts() {
         for (const x of xs) {
           const b = el('button', {className: 'rrow'}, [
             el('span', {className: 'tm', textContent: timeLabel(x.at)}),
-            el('span', {className: 'no'}, ['#' + x.no, el('small', {textContent: payLabel(x.type) + ' · ' + x.qty + (x.qty === 1 ? ' item' : ' items') + (x.disc ? ' · Sr/PWD' : '')})]),
+            el('span', {className: 'no'}, ['#' + x.no, el('small', {textContent: payLabel(x.type) + ' · ' + x.qty + (x.qty === 1 ? ' item' : ' items') + (x.disc ? ' · Sr/PWD' : '')
+              + (x.voided ? ' · VOIDED' : x.refunded ? ' · Refunded ' + peso(x.refunded) : '')})]),
             el('span', {className: 'amt', textContent: peso(x.total)})]);
+          if (x.voided) { b.style.opacity = '.55'; b.querySelector('.amt').style.textDecoration = 'line-through'; }
           b.onclick = () => showOne(unpack(x));
           list.append(b);
         }
@@ -651,15 +683,77 @@ function showReceipts() {
   });
 }
 
+const lineNet = l => r2(l.price * l.qty - (l.disc ? l.price * (l.discQty || l.qty) * DISC.rate : 0));
+const VOID_REASONS = ['Wrong item rung up', 'Customer changed their mind', 'Duplicate sale', 'Item not available', 'Product problem', 'Test sale', 'Other'];
+
 function showOne(sale) {
   const w = settings.paper === '32' ? 32 : 42;
   sheet('Receipt #' + sale.no, (bd, close) => {
     const pr = el('button', {className: 'btn g', textContent: 'Reprint'}), back = el('button', {className: 'btn o', textContent: 'Back'});
     pr.onclick = () => printSale(sale); back.onclick = close;
+    const refunded = sale.refunded || 0, left = r2(sale.total - refunded);
+    const status = sale.voided ? 'VOIDED' + (sale.voidReason ? ' \u00b7 ' + sale.voidReason : '') : refunded ? 'Refunded ' + peso(refunded) + (left > 0 ? ' \u00b7 ' + peso(left) + ' left' : ' (full)') : '';
+    if (status) bd.append(el('p', {className: 'warn', textContent: status}));
     bd.append(el('div', {className: 'rprev', textContent: receiptText(sale, w).map(l => l.replace('@@TOTAL@@', '')).join('\n')}), el('div', {className: 'row2'}, [back, pr]));
+    if (!sale.voided && left > 0) {
+      const vd = el('button', {className: 'btn o', textContent: 'Void'}), rf = el('button', {className: 'btn o', textContent: 'Refund'});
+      vd.disabled = refunded > 0;
+      vd.onclick = () => { close(); voidOrRefund(sale, 'Void'); }; rf.onclick = () => { close(); voidOrRefund(sale, 'Refund'); };
+      bd.append(el('div', {className: 'row2'}, [vd, rf]),
+        el('p', {className: 'note', textContent: 'Void cancels the whole sale (for example a mistake). Refund gives money back for some or all items. Both are logged for the Sales Report and print a slip.'}));
+    }
   });
 }
-$('#rcptBtn').onclick = showReceipts;
+
+function voidOrRefund(sale, type) {
+  const refunded = sale.refunded || 0, left = r2(sale.total - refunded);
+  sheet((type === 'Void' ? 'Void' : 'Refund') + ' receipt #' + sale.no, (bd, close) => {
+    const done = sale.refundedQty || {};
+    const picks = sale.lines.map(l => ({l, max: l.qty - (done[l.name] || 0), q: type === 'Void' ? l.qty : 0}));
+    const amountOf = () => type === 'Void' ? sale.total : r2(Math.min(left, picks.reduce((a, p) => a + (p.q ? lineNet(p.l) * p.q / p.l.qty : 0), 0)));
+    const amt = el('div', {className: 'big'});
+    const showAmt = () => { amt.replaceChildren(peso(amountOf()), el('small', {textContent: type === 'Void' ? 'whole receipt, paid by ' + payLabel(sale.type) : 'to give back, paid by ' + payLabel(sale.type)})); };
+    if (type === 'Refund') {
+      const list = el('div', {className: 'rlist'});
+      for (const p of picks) {
+        const out = el('output', {textContent: p.q}), minus = el('button', {className: 'btn o', textContent: '\u2212'}), plus = el('button', {className: 'btn o', textContent: '+'});
+        minus.style.height = plus.style.height = '36px';
+        minus.onclick = () => { p.q = Math.max(0, p.q - 1); out.textContent = p.q; showAmt(); };
+        plus.onclick = () => { p.q = Math.min(p.max, p.q + 1); out.textContent = p.q; showAmt(); };
+        if (p.max <= 0) minus.disabled = plus.disabled = true;
+        list.append(el('div', {className: 'rrow'}, [el('span', {className: 'no'}, [p.l.name, el('small', {textContent: p.l.qty + ' sold \u00b7 ' + peso(lineNet(p.l))
+          + (p.max < p.l.qty ? ' \u00b7 ' + (p.l.qty - p.max) + ' already refunded' : '')})]),
+          el('span', {}, []), el('span', {className: 'stepper'}, [minus, out, plus])]));
+      }
+      const all = el('button', {className: 'btn o', textContent: 'Refund everything left'});
+      all.onclick = () => { picks.forEach(p => { p.q = Math.max(0, p.max); }); list.querySelectorAll('output').forEach((o, i) => { o.textContent = picks[i].q; }); showAmt(); };
+      bd.append(el('p', {className: 'note', textContent: 'Pick how many of each item to refund.' + (refunded ? ' Already refunded: ' + peso(refunded) + '.' : '')}), list, all);
+    }
+    showAmt();
+    const why = el('select', {}, VOID_REASONS.map(r => new Option(r, r)));
+    const more = el('input', {placeholder: 'Details (optional)', maxLength: 120});
+    const err = el('p', {className: 'warn'});
+    const go = el('button', {className: 'btn g', textContent: type === 'Void' ? 'Void receipt' : 'Refund'});
+    go.onclick = () => {
+      const amount = amountOf();
+      if (!(amount > 0)) { err.textContent = 'Pick at least one item to refund.'; return; }
+      const reason = why.value + (more.value.trim() ? ': ' + more.value.trim() : '');
+      const lines = type === 'Void' ? sale.lines.map(l => ({name: l.name, qty: l.qty, price: l.price, amount: lineNet(l)}))
+        : picks.filter(p => p.q).map(p => ({name: p.l.name, qty: p.q, price: p.l.price, amount: r2(lineNet(p.l) * p.q / p.l.qty)}));
+      go.disabled = true; err.textContent = '';
+      api.post({pos: 'void', token: session && session.token, type, receipt: sale.no, receiptAt: new Date(sale.at).toISOString(), amount, total: sale.total,
+        payment: payLabel(sale.type), reason, items: lines.map(l => l.qty + 'x ' + l.name).join(', ')}).then(r => {
+        if (r.relogin) { close(); logout(r.error); return; }
+        if (!r.ok) { err.textContent = r.error; go.disabled = false; return; }
+        const rq = {...done}; lines.forEach(l => { rq[l.name] = (rq[l.name] || 0) + l.qty; });
+        markHistory(sale.no, type === 'Void' ? {voided: true, voidReason: reason, voidAt: new Date().toISOString()} : {refunded: r2(refunded + amount), refundedQty: rq});
+        close(); toast((type === 'Void' ? 'Receipt voided' : 'Refund of ' + peso(amount) + ' logged') + ' \u00b7 printing slip');
+        printSlip({type, no: sale.no, soldAt: sale.at, lines, amount, payment: sale.type, reason});
+      }).catch(() => { err.textContent = 'No internet connection. Voids and refunds must be logged online; try again when connected.'; go.disabled = false; });
+    };
+    bd.append(amt, el('label', {}, ['Reason', why]), more, err, go);
+  });
+}$('#rcptBtn').onclick = showReceipts;
 
 // ---- settings ---------------------------------------------------------------------------------------
 // ---- printers (Loyverse-style: Printers list > Add / Edit printer) -----------------------------------
