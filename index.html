@@ -520,14 +520,75 @@ function browserPrint(s) {
 
 function toast(msg) { const t = el('div', {className: 'toast', textContent: msg}); document.body.append(t); setTimeout(() => t.remove(), 3200); }
 
+// ---- direct Bluetooth printing (Web Bluetooth, Chrome on Android / desktop; BLE printers) ---------------
+// Classic-Bluetooth-only printers do not show up here: those keep printing through RawBT.
+const BT_SERVICES = ['000018f0-0000-1000-8000-00805f9b34fb', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+  '0000ff00-0000-1000-8000-00805f9b34fb', '0000ffe0-0000-1000-8000-00805f9b34fb', '0000fee7-0000-1000-8000-00805f9b34fb', '0000af30-0000-1000-8000-00805f9b34fb'];
+const bt = {
+  dev: null, ch: null,
+  supported: () => !!(navigator.bluetooth && navigator.bluetooth.requestDevice),
+  known() { return !!(this.dev || store.get('pos-bt-id')); },
+  name() { return (this.dev && this.dev.name) || store.get('pos-bt-name') || 'Bluetooth printer'; },
+  async pick() {
+    if (!this.supported()) throw new Error('this browser cannot use Bluetooth. Use Chrome on Android');
+    const d = await navigator.bluetooth.requestDevice({acceptAllDevices: true, optionalServices: BT_SERVICES});
+    this.dev = d; this.ch = null;
+    await this.open();
+    store.set('pos-bt-id', d.id); store.set('pos-bt-name', d.name || 'Bluetooth printer');
+    return this.name();
+  },
+  async find() {
+    if (this.dev) return this.dev;
+    const id = store.get('pos-bt-id');
+    if (id && navigator.bluetooth && navigator.bluetooth.getDevices) this.dev = (await navigator.bluetooth.getDevices()).find(d => d.id === id) || null;
+    if (!this.dev) throw new Error('no printer connected yet');
+    return this.dev;
+  },
+  async open() {
+    const d = await this.find();
+    if (this.ch && d.gatt.connected) return this.ch;
+    const server = await d.gatt.connect();
+    for (const svc of await server.getPrimaryServices()) {
+      for (const c of await svc.getCharacteristics()) {
+        if (c.properties.writeWithoutResponse || c.properties.write) { this.ch = c; return c; }
+      }
+    }
+    throw new Error('this device has no printing channel');
+  },
+  async write(bytes) {
+    const c = await this.open(), size = 180;   // small packets: many printers accept no more per write
+    for (let i = 0; i < bytes.length; i += size) {
+      const part = bytes.slice(i, i + size);
+      if (c.properties.writeWithoutResponse && c.writeValueWithoutResponse) { await c.writeValueWithoutResponse(part); await new Promise(r => setTimeout(r, 12)); }
+      else await c.writeValue(part);
+    }
+  },
+  forget() {
+    try { if (this.dev && this.dev.gatt.connected) this.dev.gatt.disconnect(); } catch (e) {}
+    this.dev = null; this.ch = null;
+    try { localStorage.removeItem('pos-bt-id'); localStorage.removeItem('pos-bt-name'); } catch (e) {}
+  },
+};
+if (store.get('pos-bt-id')) bt.open().catch(() => {});   // reconnect quietly to the remembered printer
+
 async function printSale(s) {
-  if (settings.printer !== 'browser') {
+  const want = settings.printer, n = settings.copies;
+  if (want === 'bt' || (want === 'auto' && bt.known())) {
     try {
-      for (let i = 0; i < settings.copies; i++) await send(escpos(s, Number(settings.paper)));
+      for (let i = 0; i < n; i++) await bt.write(escpos(s, Number(settings.paper)));
+      toast('Receipt sent to ' + bt.name());
+      return;
+    } catch (e) {
+      if (want === 'bt') { toast('Bluetooth printer: ' + e.message + '. Open Settings > Connect Bluetooth printer.'); return; }
+    }
+  }
+  if (want === 'auto' || want === 'rawbt') {
+    try {
+      for (let i = 0; i < n; i++) await send(escpos(s, Number(settings.paper)));
       toast('Receipt sent to the printer');
       return;
     } catch (e) {
-      if (settings.printer === 'rawbt') { toast('Printer app not reachable. Open Server for RawBT and try again.'); return; }
+      if (want === 'rawbt') { toast('Printer app not reachable. Open Server for RawBT and try again.'); return; }
     }
   }
   browserPrint(s);
@@ -582,7 +643,20 @@ $('#rcptBtn').onclick = showReceipts;
 // ---- settings ---------------------------------------------------------------------------------------
 $('#setBtn').onclick = () => sheet('Settings', (bd, close) => {
   const paper = el('select', {}, [new Option('80 mm', '48'), new Option('58 mm', '32')]); paper.value = settings.paper;
-  const pr = el('select', {}, [new Option('Receipt printer, else this device', 'auto'), new Option('Receipt printer only (RawBT)', 'rawbt'), new Option('This device’s print dialog', 'browser')]); pr.value = settings.printer;
+  const pr = el('select', {}, [new Option('Bluetooth or RawBT printer, else this device', 'auto'), new Option('Bluetooth printer only (direct)', 'bt'),
+    new Option('Receipt printer through RawBT only', 'rawbt'), new Option('This device\u2019s print dialog', 'browser')]); pr.value = settings.printer;
+  const btState = el('p', {className: 'note'});
+  const showBt = () => { btState.textContent = !bt.supported() ? 'Direct Bluetooth printing needs Chrome on Android (or a computer). On this device use RawBT or the print dialog.'
+    : bt.known() ? 'Bluetooth printer: ' + bt.name() + (bt.dev && bt.dev.gatt.connected ? ' (connected)' : ' (remembered)') : 'No Bluetooth printer connected yet. Turn the printer on, then tap Connect.'; };
+  showBt();
+  const btConnect = el('button', {className: 'btn o', textContent: bt.known() ? 'Change printer' : 'Connect Bluetooth printer'});
+  const btTest = el('button', {className: 'btn o', textContent: 'Test print'});
+  btConnect.onclick = () => { bt.pick().then(nm => { toast('Connected to ' + nm); if (pr.value === 'browser' || pr.value === 'rawbt') pr.value = 'auto'; showBt(); btConnect.textContent = 'Change printer'; })
+    .catch(e => { if (e && e.name !== 'NotFoundError') toast('Could not connect: ' + (e.message || e)); showBt(); }); };
+  btTest.onclick = () => { const ESC = '\x1b', GS = '\x1d';
+    const bytes = new TextEncoder().encode(ESC + '@' + ESC + 'a1' + 'PH Point of Sale\nTest print OK\n' + new Date().toLocaleString('en-PH', {timeZone: 'Asia/Manila'}) + '\n' + GS + 'V\x42\x00');
+    (bt.known() ? bt.write(bytes).then(() => toast('Test sent to ' + bt.name())) : send(bytes).then(() => toast('Test sent through RawBT')))
+      .catch(e => toast('Test failed: ' + (e.message || e))).finally(showBt); };
   const cp = el('select', {}, [new Option('1 copy', '1'), new Option('2 copies', '2')]); cp.value = String(settings.copies);
   const ca = el('input', {value: settings.cashier, placeholder: 'Name on receipts (optional)'});
   const ap = el('input', {type: 'checkbox', checked: settings.autoprint});
@@ -596,7 +670,7 @@ $('#setBtn').onclick = () => sheet('Settings', (bd, close) => {
     store.set('pos-paper', settings.paper); store.set('pos-printer', settings.printer); store.set('pos-copies', String(settings.copies));
     store.set('pos-cashier', settings.cashier); store.set('pos-autoprint', settings.autoprint ? 'yes' : 'no'); close(); toast('Settings saved');
   };
-  bd.append(el('label', {}, ['Paper width', paper]), el('label', {}, ['Print to', pr]), el('label', {}, ['Copies', cp]),
+  bd.append(el('label', {}, ['Paper width', paper]), el('label', {}, ['Print to', pr]), btState, el('div', {className: 'row2'}, [btConnect, btTest]), el('label', {}, ['Copies', cp]),
     el('label', {}, ['Cashier', ca]), el('label', {className: 'tog'}, [el('span', {textContent: 'Print automatically after each sale'}), ap]),
     el('p', {className: 'note', textContent: 'Prices from Loyverse, refreshed nightly. Nothing is saved here: ring every sale in Loyverse as usual.'}),
     el('div', {className: 'row2'}, [last, save]),
