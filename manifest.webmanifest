@@ -1,9 +1,9 @@
 {
  "name": "PH Point of Sale",
  "short_name": "PH Point of Sale",
- "id": "./",
- "start_url": "./",
- "scope": "./",
+ "id": "/ph-pos/?app=pos",
+ "start_url": "/ph-pos/?app=pos",
+ "scope": "/ph-pos/",
  "display": "standalone",
  "orientation": "any",
  "background_color": "#ECEFF1",
