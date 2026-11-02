@@ -117,10 +117,11 @@ body[data-role="agent"] .admin-only{display:none!important}
   .mobile-bar .btn{flex:1}
   .grid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));grid-auto-rows:112px}
 }
-/* browser-print receipt */
+/* browser-print receipt: zero page margins leave no room for the browser's date / title / URL lines */
+@page{margin:0}
 #rc{display:none}
 @media print{
-  body{background:#fff;overflow:visible}
+  html,body{background:#fff;overflow:visible;margin:0;padding:0;height:auto}
   .app,.veil,.toast,.mobile-bar{display:none!important}
   #rc{display:block;box-sizing:border-box;width:var(--paper,80mm);padding:3mm 3mm 0;font:var(--rcfont,11px)/1.3 'Roboto Mono',monospace;color:#000;white-space:pre-wrap}
   #rc img{display:block;width:60%;margin:0 auto 2mm;filter:grayscale(1) contrast(1.2)}
@@ -146,6 +147,7 @@ body[data-role="agent"] .admin-only{display:none!important}
       <h1>PH Point of Sale<span class="role" id="roleTag"></span></h1>
       <button class="ib admin-only" id="manageBtn" aria-label="Manage items" title="Manage items"><svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75z"/></svg></button>
       <a class="ib admin-only" href="https://claude.ai/artifact/7Pojsby1DNCfGeb2AKYQth" target="_blank" rel="noopener" aria-label="Open the Sales Report" title="Sales Report"><svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg></a>
+      <button class="ib" id="printerBtn" aria-label="Printers" title="Printers"><svg viewBox="0 0 24 24"><path d="M19 8H5a3 3 0 0 0-3 3v6h4v4h12v-4h4v-6a3 3 0 0 0-3-3zm-3 11H8v-5h8zm3-7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-1-9H6v4h12z"/></svg></button>
       <button class="ib" id="rcptBtn" aria-label="Receipts, last 30 days" title="Receipts"><svg viewBox="0 0 24 24"><path d="M18 17H6v-2h12zm0-4H6v-2h12zm0-4H6V7h12zM3 22l1.5-1.5L6 22l1.5-1.5L9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22l1.5-1.5L21 22V2l-1.5 1.5L18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2 4.5 3.5 3 2z"/></svg></button>
       <button class="ib" id="setBtn" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.6 7.6 0 0 0 1.7 1L11 21h4l.4-2.7a7.6 7.6 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7z"/></svg></button>
     </div>
@@ -224,9 +226,11 @@ const tidy = n => {
 };
 
 // ---- state -------------------------------------------------------------------------------------------
-let ticket = [];            // {key, qty, disc}
-let senior = {id: '', name: ''};
-const settings = {paper: store.get('pos-paper') || '48', printer: store.get('pos-printer') || 'auto',
+let ticket = [];            // {key, qty}
+// Sr/PWD (Vince, 3 Nov): 20% off ONE unit of the highest-priced item on the ticket; an ID at most 3 times a day.
+let senior = {id: '', name: '', on: false};
+const srLine = () => ticket.filter(l => byKey[l.key]).reduce((best, l) => !best || byKey[l.key].price > byKey[best.key].price ? l : best, null);
+const settings = {paper: store.get('pos-paper') || '48', printer: store.get('pos-printer') || 'auto', printerName: store.get('pos-printer-name') || '',
                   copies: Number(store.get('pos-copies') || 1), cashier: store.get('pos-cashier') || '',
                   autoprint: store.get('pos-autoprint') !== 'no'};
 
@@ -234,10 +238,10 @@ function totals() {
   let sub = 0, disc = 0, qty = 0;
   for (const l of ticket) {
     const it = byKey[l.key]; if (!it) continue;
-    const amt = it.price * l.qty;
-    sub += amt; qty += l.qty;
-    if (l.disc) disc += amt * DISC.rate;
+    sub += it.price * l.qty; qty += l.qty;
   }
+  const top = senior.on ? srLine() : null;
+  if (top) disc = byKey[top.key].price * DISC.rate;
   sub = r2(sub); disc = r2(disc);
   return {sub, disc, total: r2(sub - disc), qty};
 }
@@ -275,9 +279,8 @@ function renderGrid() {
 }
 
 function add(key) {
-  const allDisc = ticket.length > 0 && ticket.every(l => l.disc);
-  const l = ticket.find(x => x.key === key && !!x.disc === allDisc);
-  if (l) l.qty++; else ticket.push({key, qty: 1, disc: allDisc});
+  const l = ticket.find(x => x.key === key);
+  if (l) l.qty++; else ticket.push({key, qty: 1});
   render();
 }
 
@@ -287,14 +290,16 @@ function render() {
   box.replaceChildren();
   if (!ticket.length) { const n = document.createElement('p'); n.className = 'none'; n.textContent = 'Tap items to add them to the ticket.'; box.append(n); }
   ticket = ticket.filter(l => byKey[l.key]);
+  const top = senior.on ? srLine() : null;
   ticket.forEach((l, idx) => {
     const it = byKey[l.key], amt = it.price * l.qty;
     const b = document.createElement('button'); b.className = 'line';
     const n = document.createElement('span'); const nb = document.createElement('b'); nb.textContent = tidy(it.name);
     n.append(nb); if (l.qty > 1) { const x = document.createElement('span'); x.className = 'x'; x.textContent = ' × ' + l.qty; n.append(x); }
-    const a = document.createElement('span'); a.className = 'amt'; a.textContent = peso(l.disc ? amt * (1 - DISC.rate) : amt);
+    const off = l === top ? it.price * DISC.rate : 0;
+    const a = document.createElement('span'); a.className = 'amt'; a.textContent = peso(amt - off);
     b.append(n, a);
-    if (l.disc) { const d = document.createElement('span'); d.className = 'd'; d.textContent = DISC.short + ' · '; const s = document.createElement('s'); s.textContent = peso(amt); d.append(s); b.append(d); }
+    if (off) { const d = document.createElement('span'); d.className = 'd'; d.textContent = DISC.short + ' on 1 (highest price) · −' + peso(off) + ' · '; const s = document.createElement('s'); s.textContent = peso(amt); d.append(s); b.append(d); }
     b.onclick = () => editLine(idx);
     box.append(b);
   });
@@ -304,8 +309,8 @@ function render() {
   row('Total', peso(t.total), 'tot');
   $('#cTot').textContent = peso(t.total); $('#mTot').textContent = peso(t.total) + (t.qty ? ' · ' + t.qty + (t.qty === 1 ? ' item' : ' items') : '');
   $('#chargeBtn').disabled = !ticket.length;
-  $('#discBtn').classList.toggle('on', ticket.length > 0 && ticket.every(l => l.disc));
-  $('#discBtn').textContent = ticket.length && ticket.every(l => l.disc) ? 'Remove Sr/PWD' : 'Sr/PWD 20%';
+  $('#discBtn').classList.toggle('on', senior.on);
+  $('#discBtn').textContent = senior.on ? 'Remove Sr/PWD' : 'Sr/PWD 20%';
   renderGrid();
 }
 
@@ -331,35 +336,42 @@ function editLine(idx) {
     const out = el('output', {textContent: q});
     const minus = el('button', {textContent: '−', ariaLabel: 'One less'}), plus = el('button', {textContent: '+', ariaLabel: 'One more'});
     minus.onclick = () => { q = Math.max(1, q - 1); out.textContent = q; }; plus.onclick = () => { q++; out.textContent = q; };
-    const dsc = el('input', {type: 'checkbox', checked: l.disc});
     const save = el('button', {className: 'btn g', textContent: 'Save'}), del = el('button', {className: 'btn o', textContent: 'Remove item'});
-    save.onclick = () => { l.qty = q; l.disc = dsc.checked; if (l.disc) askSenior(); render(); close(); };
+    save.onclick = () => { l.qty = q; render(); close(); };
     del.onclick = () => { ticket.splice(idx, 1); render(); close(); };
     bd.append(el('p', {className: 'note', textContent: peso(it.price) + ' each · ' + it.cat}),
       el('div', {className: 'stepper'}, [minus, out, plus]),
-      el('label', {className: 'tog'}, [el('span', {textContent: DISC.name + ' 20% on this item'}), dsc]),
       el('div', {className: 'row2'}, [del, save]));
   });
 }
 
-function askSenior(after) {
-  if (senior.id && !after) return;
-  sheet('Senior / PWD details', (bd, close) => {
+function askSenior() {
+  sheet('Senior / PWD discount', (bd, close) => {
     const id = el('input', {value: senior.id, placeholder: 'e.g. 12345-678', autocomplete: 'off'});
     const nm = el('input', {value: senior.name, placeholder: 'Full name', autocomplete: 'off'});
+    const err = el('p', {className: 'warn'});
     const ok = el('button', {className: 'btn g', textContent: 'Apply discount'});
-    ok.onclick = () => { senior = {id: id.value.trim(), name: nm.value.trim()}; close(); if (after) after(); };
-    bd.append(el('p', {className: 'note', textContent: 'Check the customer’s Senior Citizen or PWD ID. These details print on the receipt for the signature.'}),
-      el('label', {}, ['SC / PWD ID number', id]), el('label', {}, ['Name', nm]), ok);
+    ok.onclick = () => {
+      const idv = id.value.trim(), nmv = nm.value.trim();
+      if (idv.replace(/[^A-Za-z0-9]/g, '').length < 4) { err.textContent = 'Type the full ID number.'; return; }
+      ok.disabled = true; err.textContent = '';
+      const apply = (note) => { senior = {id: idv, name: nmv, on: true}; close(); render(); toast(note); };
+      api.post({pos: 'srcheck', token: session && session.token, id: idv}).then(r => {
+        if (r.relogin) { close(); logout(r.error); return; }
+        if (!r.ok) { err.textContent = r.error; ok.disabled = false; return; }
+        apply('Sr/PWD 20% applied · this ID: ' + r.used + ' of 3 used today');
+      }).catch(() => apply('Sr/PWD applied, but the 3-a-day limit could not be checked (no internet)'));
+    };
+    bd.append(el('p', {className: 'note', textContent: 'Check the Senior Citizen or PWD ID. The 20% goes on one piece of the highest-priced item, and one ID can be used 3 times a day. The ID and name print on the receipt for the signature.'}),
+      el('label', {}, ['SC / PWD ID number', id]), el('label', {}, ['Name', nm]), err, ok);
     setTimeout(() => id.focus(), 50);
   });
 }
 
 $('#discBtn').onclick = () => {
   if (!ticket.length) return;
-  const all = ticket.every(l => l.disc);
-  if (all) { ticket.forEach(l => l.disc = false); senior = {id: '', name: ''}; render(); return; }
-  askSenior(() => { ticket.forEach(l => l.disc = true); render(); });
+  if (senior.on) { senior = {id: '', name: '', on: false}; render(); return; }
+  askSenior();
 };
 $('#clearBtn').onclick = () => {
   if (!ticket.length) return;
@@ -369,7 +381,7 @@ $('#clearBtn').onclick = () => {
     bd.append(el('p', {textContent: 'All items on the ticket will be removed.'}), el('div', {className: 'row2'}, [no, yes]));
   });
 };
-function newSale() { ticket = []; senior = {id: '', name: ''}; render(); $('#right').classList.remove('open'); }
+function newSale() { ticket = []; senior = {id: '', name: '', on: false}; render(); $('#right').classList.remove('open'); }
 
 // ---- charge -----------------------------------------------------------------------------------------
 $('#chargeBtn').onclick = () => {
@@ -381,14 +393,22 @@ $('#chargeBtn').onclick = () => {
     cash.oninput = upd; upd();
     const notes = [t.total, ...[100, 200, 500, 1000].filter(n => n > t.total)].slice(0, 4);
     const quick = el('div', {className: 'quick'}, notes.map((n, i) => { const b = el('button', {textContent: i === 0 ? 'Exact' : peso(n).replace('.00', '')}); b.onclick = () => { cash.value = n; upd(); }; return b; }));
+    const err = el('p', {className: 'warn'});
     const pay = type => {
       const tendered = type === 'Cash' ? (Number(cash.value || 0) || t.total) : t.total;
       if (type === 'Cash' && tendered < t.total) { cash.focus(); return; }
-      close(); done(type, tendered);
+      if (!t.disc) { close(); done(type, tendered, nextNo()); return; }
+      const no = nextNo();
+      pays.querySelectorAll('button').forEach(b => b.disabled = true); err.textContent = '';
+      api.post({pos: 'srclaim', token: session && session.token, id: senior.id, name: senior.name, receipt: no, discount: t.disc}).then(r => {
+        if (r.relogin) { close(); logout(r.error); return; }
+        if (!r.ok) { err.textContent = r.error + ' Remove the Sr/PWD discount to continue.'; pays.querySelectorAll('button').forEach(b => b.disabled = false); return; }
+        close(); done(type, tendered, no);
+      }).catch(() => { close(); done(type, tendered, no); toast('Sr/PWD use not logged (no internet)'); });
     };
     const pays = el('div', {className: 'pays'}, [['Cash', 'Cash'], ['QR Payments', 'GCash / QR'], ['Card', 'Card']].map(([k, lab]) => { const b = el('button', {className: 'btn g', textContent: lab}); b.onclick = () => pay(k); return b; }));
     bd.append(el('div', {className: 'big'}, [peso(t.total), el('small', {textContent: t.disc ? 'includes ' + DISC.short + ' −' + peso(t.disc) : 'Total amount due'})]),
-      el('label', {}, ['Cash received', cash]), quick, ch, pays);
+      el('label', {}, ['Cash received', cash]), quick, ch, err, pays);
   });
 };
 
@@ -396,8 +416,8 @@ $('#chargeBtn').onclick = () => {
 const HIST = 'pos-history', KEEP_DAYS = 30;
 const pack = s => ({no: s.no, at: new Date(s.at).toISOString(), type: s.type, tendered: s.tendered, sub: s.sub, disc: s.disc, total: s.total,
   change: s.change, qty: s.qty, cashier: s.cashier || '', senior: s.senior && s.senior.id ? s.senior : undefined,
-  lines: s.lines.map(l => [l.name, l.price, l.qty, l.disc ? 1 : 0])});
-const unpack = h => ({...h, at: new Date(h.at), senior: h.senior || {id: '', name: ''}, lines: h.lines.map(([name, price, qty, disc]) => ({name, price, qty, disc: !!disc}))});
+  lines: s.lines.map(l => [l.name, l.price, l.qty, l.disc ? 1 : 0, l.discQty || 0])});
+const unpack = h => ({...h, at: new Date(h.at), senior: h.senior || {id: '', name: ''}, lines: h.lines.map(([name, price, qty, disc, dq]) => ({name, price, qty, disc: !!disc, discQty: dq || (disc ? qty : 0)}))});
 function loadHistory() {
   let h = [];
   try { h = JSON.parse(store.get(HIST) || '[]'); } catch (e) { h = []; }
@@ -422,10 +442,11 @@ function nextNo() {
   return d + '-' + String(n).padStart(3, '0');
 }
 
-function done(type, tendered) {
-  const t = totals();
-  const sale = {no: nextNo(), at: new Date(), type, tendered, change: r2(tendered - t.total), ...t,
-                lines: ticket.map(l => ({...l, name: tidy(byKey[l.key].name), price: byKey[l.key].price})), senior: {...senior}, cashier: settings.cashier};
+function done(type, tendered, no) {
+  const t = totals(), top = senior.on ? srLine() : null;
+  const sale = {no, at: new Date(), type, tendered, change: r2(tendered - t.total), ...t,
+                lines: ticket.map(l => ({key: l.key, qty: l.qty, disc: l === top, discQty: l === top ? 1 : 0, name: tidy(byKey[l.key].name), price: byKey[l.key].price})),
+                senior: senior.on ? {id: senior.id, name: senior.name} : {id: '', name: ''}, cashier: settings.cashier};
   saveHistory(sale);
   if (settings.autoprint) printSale(sale);
   sheet('Sale complete', (bd, close, x) => {
@@ -457,7 +478,7 @@ function receiptText(s, w) {
     const amt = l.price * l.qty;
     L.push(...wrapw(l.name, w));
     L.push(lr('  ' + l.qty + ' x ' + money(l.price), money(amt), w));
-    if (l.disc) L.push(lr('  Sr/PWD 20%', '-' + money(amt * DISC.rate), w));
+    if (l.disc) L.push(lr('  Sr/PWD 20% x' + (l.discQty || l.qty), '-' + money(l.price * (l.discQty || l.qty) * DISC.rate), w));
   }
   L.push(rule);
   if (s.disc) { L.push(lr('Subtotal', money(s.sub), w)); L.push(lr('Sr/PWD Discount 20%', '-' + money(s.disc), w)); }
@@ -476,7 +497,7 @@ function escpos(s, w) {
   const lines = receiptText(s, w);
   let t = ESC + 'a0';
   for (const l of lines) t += l.startsWith('@@TOTAL@@') ? GS + '!\x01' + ESC + 'E1' + l.slice(9) + ESC + 'E0' + GS + '!\x00' + '\n' : l + '\n';
-  t += GS + 'V\x42\x00';   // no blank feed after the last line (Vince: save paper); the cutter feeds to its own cut point
+  t += '\n' + GS + 'V\x42\x00';   // one blank line after "not an official receipt", then cut (Vince, 3 Nov)
   const head = new TextEncoder().encode(ESC + '@'), logo = Uint8Array.from(atob(LOGO.raster[String(w)] || LOGO.raster['48']), c => c.charCodeAt(0));
   const body = new TextEncoder().encode('\n' + t);   // pure ASCII, so UTF-8 bytes = the printer's bytes
   const all = new Uint8Array(head.length + logo.length + body.length);
@@ -501,7 +522,7 @@ function browserPrint(s) {
   document.documentElement.style.setProperty('--rcfont', paper === 58 ? '10px' : '11px');   // 32 / 42 columns fit
   const rc = $('#rc');
   const img = el('img', {src: LOGO.img, alt: 'Purrfect Hokkaido'});
-  rc.replaceChildren(img, el('div', {textContent: receiptText(s, w).map(l => l.replace('@@TOTAL@@', '')).join('\n')}));
+  rc.replaceChildren(img, el('div', {textContent: receiptText(s, w).map(l => l.replace('@@TOTAL@@', '')).join('\n') + '\n '}));
   // The page is exactly as long as the receipt, so the paper stops right after the last line (Vince: save paper).
   const go = () => {
     rc.style.cssText = 'display:block;position:absolute;visibility:hidden;left:0;top:0;box-sizing:border-box;width:' + paper + 'mm;padding:3mm 3mm 0;'
@@ -641,39 +662,87 @@ function showOne(sale) {
 $('#rcptBtn').onclick = showReceipts;
 
 // ---- settings ---------------------------------------------------------------------------------------
+// ---- printers (Loyverse-style: Printers list > Add / Edit printer) -----------------------------------
+const IFACE = {bt: 'Bluetooth', rawbt: 'Bluetooth through RawBT app', browser: 'This device\u2019s print dialog', auto: 'Automatic'};
+function savePrinter(p) {
+  Object.assign(settings, p);
+  store.set('pos-printer', settings.printer); store.set('pos-printer-name', settings.printerName); store.set('pos-paper', settings.paper);
+  store.set('pos-copies', String(settings.copies)); store.set('pos-autoprint', settings.autoprint ? 'yes' : 'no');
+}
+function testPrint() {
+  const ESC = '\x1b', GS = '\x1d';
+  const s = {no: 'TEST', at: new Date(), type: 'Cash', tendered: 0, change: 0, sub: 0, disc: 0, total: 0, qty: 0, lines: [], senior: {id: '', name: ''}, cashier: ''};
+  if (settings.printer === 'browser') { browserPrint(s); return Promise.resolve(); }
+  const bytes = new TextEncoder().encode(ESC + '@' + ESC + 'a1' + (settings.printerName || 'Receipt printer') + '\nPH Point of Sale - test print OK\n'
+    + new Date().toLocaleString('en-PH', {timeZone: 'Asia/Manila'}) + '\n' + GS + 'V\x42\x00');
+  return (settings.printer === 'rawbt' || (settings.printer === 'auto' && !bt.known()) ? send(bytes) : bt.write(bytes));
+}
+function showPrinters() {
+  sheet('Printers', (bd, close) => {
+    const has = settings.printerName || settings.printer !== 'auto';
+    if (has) {
+      const card = el('button', {className: 'rrow'}, [
+        el('span', {className: 'tm', textContent: '\ud83d\udda8'}),
+        el('span', {className: 'no'}, [settings.printerName || 'Receipt printer', el('small', {textContent: IFACE[settings.printer] + (settings.printer === 'bt' ? ' \u00b7 ' + (bt.known() ? bt.name() : 'not connected') : '')
+          + ' \u00b7 ' + (settings.paper === '32' ? '58 mm' : '80 mm') + (settings.autoprint ? ' \u00b7 prints receipts automatically' : '')})]),
+        el('span', {className: 'amt', textContent: 'Edit'})]);
+      card.onclick = () => { close(); editPrinter(); };
+      bd.append(card);
+    } else {
+      bd.append(el('p', {className: 'none', textContent: 'You have no printers yet. Receipts go to a Bluetooth or RawBT printer if one answers, otherwise to the print dialog.'}));
+    }
+    const add = el('button', {className: 'btn g', textContent: has ? 'Edit printer' : 'Add printer'});
+    add.onclick = () => { close(); editPrinter(); };
+    bd.append(add);
+  });
+}
+function editPrinter() {
+  sheet(settings.printerName ? 'Edit printer' : 'Add printer', (bd, close) => {
+    const name = el('input', {value: settings.printerName || 'Receipt printer', maxLength: 40});
+    const iface = el('select', {}, [new Option('Bluetooth', 'bt'), new Option('Bluetooth through RawBT app', 'rawbt'), new Option('This device\u2019s print dialog', 'browser')]);
+    iface.value = settings.printer === 'auto' ? (bt.supported() ? 'bt' : 'rawbt') : settings.printer;
+    const dev = el('p', {className: 'note'});
+    const search = el('button', {className: 'btn o', textContent: 'Search'});
+    const devRow = el('div', {className: 'row2'}, [dev, search]);
+    const showDev = () => {
+      devRow.hidden = iface.value !== 'bt';
+      dev.textContent = !bt.supported() ? 'This browser cannot use Bluetooth. Use Chrome on Android, or pick RawBT.' : bt.known() ? 'Printer: ' + bt.name() : 'No printer found yet. Turn it on, then tap Search.';
+    };
+    iface.onchange = showDev; showDev();
+    search.onclick = () => bt.pick().then(nm => { toast('Connected to ' + nm); if (!name.value || name.value === 'Receipt printer') name.value = nm; showDev(); })
+      .catch(e => { if (e && e.name !== 'NotFoundError') toast('Could not connect: ' + (e.message || e)); showDev(); });
+    const paper = el('select', {}, [new Option('80 mm', '48'), new Option('58 mm', '32')]); paper.value = settings.paper;
+    const cp = el('select', {}, [new Option('1 copy', '1'), new Option('2 copies', '2')]); cp.value = String(settings.copies);
+    const ap = el('input', {type: 'checkbox', checked: settings.autoprint});
+    const collect = () => ({printerName: name.value.trim() || 'Receipt printer', printer: iface.value, paper: paper.value, copies: Number(cp.value), autoprint: ap.checked});
+    const test = el('button', {className: 'btn o', textContent: 'Print test'});
+    test.onclick = () => { const keep = {...settings}; Object.assign(settings, collect());
+      testPrint().then(() => toast('Test sent')).catch(e => toast('Test failed: ' + (e.message || e))).finally(() => Object.assign(settings, keep)); };
+    const save = el('button', {className: 'btn g', textContent: 'Save'});
+    save.onclick = () => { savePrinter(collect()); close(); toast('Printer saved'); };
+    const del = el('button', {className: 'btn o', textContent: 'Delete printer'});
+    del.onclick = () => { bt.forget(); savePrinter({printerName: '', printer: 'auto'}); close(); toast('Printer deleted'); };
+    bd.append(el('label', {}, ['Name', name]), el('label', {}, ['Interface', iface]), devRow, el('label', {}, ['Paper width', paper]),
+      el('label', {}, ['Copies', cp]), el('label', {className: 'tog'}, [el('span', {textContent: 'Print receipts automatically'}), ap]),
+      el('div', {className: 'row2'}, [test, save]), ...(settings.printerName || settings.printer !== 'auto' ? [del] : []));
+  });
+}
+$('#printerBtn').onclick = showPrinters;
+
+// ---- settings ---------------------------------------------------------------------------------------
 $('#setBtn').onclick = () => sheet('Settings', (bd, close) => {
-  const paper = el('select', {}, [new Option('80 mm', '48'), new Option('58 mm', '32')]); paper.value = settings.paper;
-  const pr = el('select', {}, [new Option('Bluetooth or RawBT printer, else this device', 'auto'), new Option('Bluetooth printer only (direct)', 'bt'),
-    new Option('Receipt printer through RawBT only', 'rawbt'), new Option('This device\u2019s print dialog', 'browser')]); pr.value = settings.printer;
-  const btState = el('p', {className: 'note'});
-  const showBt = () => { btState.textContent = !bt.supported() ? 'Direct Bluetooth printing needs Chrome on Android (or a computer). On this device use RawBT or the print dialog.'
-    : bt.known() ? 'Bluetooth printer: ' + bt.name() + (bt.dev && bt.dev.gatt.connected ? ' (connected)' : ' (remembered)') : 'No Bluetooth printer connected yet. Turn the printer on, then tap Connect.'; };
-  showBt();
-  const btConnect = el('button', {className: 'btn o', textContent: bt.known() ? 'Change printer' : 'Connect Bluetooth printer'});
-  const btTest = el('button', {className: 'btn o', textContent: 'Test print'});
-  btConnect.onclick = () => { bt.pick().then(nm => { toast('Connected to ' + nm); if (pr.value === 'browser' || pr.value === 'rawbt') pr.value = 'auto'; showBt(); btConnect.textContent = 'Change printer'; })
-    .catch(e => { if (e && e.name !== 'NotFoundError') toast('Could not connect: ' + (e.message || e)); showBt(); }); };
-  btTest.onclick = () => { const ESC = '\x1b', GS = '\x1d';
-    const bytes = new TextEncoder().encode(ESC + '@' + ESC + 'a1' + 'PH Point of Sale\nTest print OK\n' + new Date().toLocaleString('en-PH', {timeZone: 'Asia/Manila'}) + '\n' + GS + 'V\x42\x00');
-    (bt.known() ? bt.write(bytes).then(() => toast('Test sent to ' + bt.name())) : send(bytes).then(() => toast('Test sent through RawBT')))
-      .catch(e => toast('Test failed: ' + (e.message || e))).finally(showBt); };
-  const cp = el('select', {}, [new Option('1 copy', '1'), new Option('2 copies', '2')]); cp.value = String(settings.copies);
+  const printers = el('button', {className: 'btn o', textContent: 'Printers'});
+  printers.onclick = () => { close(); showPrinters(); };
   const ca = el('input', {value: settings.cashier, placeholder: 'Name on receipts (optional)'});
-  const ap = el('input', {type: 'checkbox', checked: settings.autoprint});
   const last = el('button', {className: 'btn o', textContent: 'Past receipts'});
   const manage = el('button', {className: 'btn o admin-only', textContent: 'Manage items'}), out = el('button', {className: 'btn o', textContent: 'Log out'});
   manage.onclick = () => { close(); showManage(); }; out.onclick = () => { close(); logout(); };
   const save = el('button', {className: 'btn g', textContent: 'Save'});
   last.onclick = () => { close(); showReceipts(); };
-  save.onclick = () => {
-    Object.assign(settings, {paper: paper.value, printer: pr.value, copies: Number(cp.value), cashier: ca.value.trim(), autoprint: ap.checked});
-    store.set('pos-paper', settings.paper); store.set('pos-printer', settings.printer); store.set('pos-copies', String(settings.copies));
-    store.set('pos-cashier', settings.cashier); store.set('pos-autoprint', settings.autoprint ? 'yes' : 'no'); close(); toast('Settings saved');
-  };
-  bd.append(el('label', {}, ['Paper width', paper]), el('label', {}, ['Print to', pr]), btState, el('div', {className: 'row2'}, [btConnect, btTest]), el('label', {}, ['Copies', cp]),
-    el('label', {}, ['Cashier', ca]), el('label', {className: 'tog'}, [el('span', {textContent: 'Print automatically after each sale'}), ap]),
+  save.onclick = () => { settings.cashier = ca.value.trim(); store.set('pos-cashier', settings.cashier); close(); toast('Settings saved'); };
+  bd.append(el('label', {}, ['Cashier', ca]), el('div', {className: 'row2'}, [printers, last]),
     el('p', {className: 'note', textContent: 'Prices from Loyverse, refreshed nightly. Nothing is saved here: ring every sale in Loyverse as usual.'}),
-    el('div', {className: 'row2'}, [last, save]),
+    save,
     el('p', {className: 'note', textContent: 'Logged in as ' + roleName() + (session ? ' until ' + new Date(session.until).toLocaleTimeString('en-PH', {timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit'}) : '') + '.'}),
     el('div', {className: 'row2'}, [manage, out]));
 });
