@@ -453,10 +453,10 @@ function drawSupplies() {
   $('#invNote').innerHTML = 'Every sale takes its recipe amounts off these supplies (refunds put them back). A supply is flagged when what is left is at or under its low level (20% of full by default). Tap <b>Restock</b> when a delivery arrives, <b>Count</b> after counting the shelf.';
   chipsFor([['attention', 'Need restock (low + out)', n('Low') + n('Out'), 'red'], ['Out', 'Out of stock', n('Out'), 'red'], ['Low', 'Running low', n('Low'), 'amber'],
     ['OK', 'In stock', n('OK'), 'okc'], ['Not counted', 'Not counted yet', n('Not counted'), ''], ['all', 'All supplies', rows.length, '']], inv.filter, k => { inv.filter = k; });
-  const q = $('#invQ').value.trim().toLowerCase(), order = {Out: 0, Low: 1, OK: 2, 'Not counted': 3};
+  const q = $('#invQ').value.trim().toLowerCase();
   const list = rows.filter(r => (inv.filter === 'all' || (inv.filter === 'attention' ? (r.status === 'Low' || r.status === 'Out') : r.status === inv.filter))
     && (!q || r.supply.toLowerCase().includes(q)))
-    .sort((a, b) => order[a.status] - order[b.status] || (a.pct || 0) - (b.pct || 0) || a.supply.localeCompare(b.supply));
+    .sort((a, b) => a.supply.localeCompare(b.supply, undefined, {sensitivity: 'base'}));   // A-Z (Vince, 3 Nov)
   const box = $('#invList'); box.replaceChildren();
   if (!rows.length) { box.append(el('p', {className: 'empty', textContent: 'No supplies yet. Tap + Add supply.'})); return; }
   if (!list.length) { box.append(el('p', {className: 'empty', textContent: inv.filter === 'attention' ? 'No supply needs a restock right now.' : 'No supplies here.'})); return; }
@@ -538,7 +538,7 @@ function drawRecipes() {
 function recipeDialog(m) {
   const sup = inv.data.rows, items = inv.data.items || {};
   const lines = el('div', {style: 'display:grid;gap:6px'});
-  const dl = el('datalist', {id: 'supList'}, sup.map(s => el('option', {value: s.supply})));
+  const dl = el('datalist', {id: 'supList'}, [...sup].sort((x, y) => x.supply.localeCompare(y.supply)).map(s => el('option', {value: s.supply})));
   const addLine = (supply, qty) => {
     const s = el('input', {value: supply || '', placeholder: 'Supply', required: true, maxLength: 120}); s.setAttribute('list', 'supList');
     const q = el('input', {type: 'number', min: 0, step: 'any', value: qty != null ? qty : '', placeholder: 'Qty', required: true, inputMode: 'decimal', style: 'width:90px'});
